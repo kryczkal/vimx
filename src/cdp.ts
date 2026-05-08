@@ -10,6 +10,16 @@ async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Serializes all browser interactions so CDP events from one tool call
+// are fully processed before the next call starts.
+let actionQueue: Promise<unknown> = Promise.resolve();
+
+export function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const next = actionQueue.then(fn, fn);
+  actionQueue = next.catch(() => {});
+  return next;
+}
+
 function isChromeRunning(): boolean {
   try {
     execSync("pgrep -f chromium", { stdio: "ignore" });

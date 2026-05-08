@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type CDP from "chrome-remote-interface";
-import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation } from "./cdp.js";
+import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation, serialized } from "./cdp.js";
 import { SCANNER_JS, GET_RECT_JS, CHECK_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
@@ -144,7 +144,7 @@ server.tool(
   "press",
   "Press a button, click a link, or activate a pressable element. Only works on elements listed under PRESS in scan results. Automatically re-scans after pressing.",
   { id: z.number().describe("Element ID from scan results (PRESS group)") },
-  async ({ id }) => {
+  async ({ id }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
       const check = await checkElement(client, id);
@@ -177,7 +177,7 @@ server.tool(
     } catch (e) {
       return err(`Press failed: ${e instanceof Error ? e.message : e}`);
     }
-  },
+  }),
 );
 
 server.tool(
@@ -188,7 +188,7 @@ server.tool(
     text: z.string().describe("Text to type into the element"),
     clear: z.boolean().optional().default(true).describe("Clear existing value first (default: true)"),
   },
-  async ({ id, text, clear }) => {
+  async ({ id, text, clear }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
       const check = await checkElement(client, id);
@@ -198,13 +198,11 @@ server.tool(
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
 
-      // Click to focus
       await cdpClick(client, rect.x, rect.y);
       await new Promise(r => setTimeout(r, 150));
 
       if (clear) {
         await cdpSelectAll(client);
-        await new Promise(r => setTimeout(r, 50));
         await cdpBackspace(client);
         await new Promise(r => setTimeout(r, 50));
       }
@@ -214,7 +212,7 @@ server.tool(
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
     }
-  },
+  }),
 );
 
 server.tool(
@@ -224,7 +222,7 @@ server.tool(
     id: z.number().describe("Element ID from scan results (SELECT group)"),
     value: z.string().describe("Option text or value to select"),
   },
-  async ({ id, value }) => {
+  async ({ id, value }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
       const result = await evaluate(client, `${SELECT_JS}(${id}, ${JSON.stringify(value)})`) as {
@@ -235,14 +233,14 @@ server.tool(
     } catch (e) {
       return err(`Select failed: ${e instanceof Error ? e.message : e}`);
     }
-  },
+  }),
 );
 
 server.tool(
   "toggle",
   "Toggle a checkbox, radio button, or switch. Only works on elements listed under TOGGLE in scan results.",
   { id: z.number().describe("Element ID from scan results (TOGGLE group)") },
-  async ({ id }) => {
+  async ({ id }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
       const check = await checkElement(client, id);
@@ -265,7 +263,7 @@ server.tool(
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
     }
-  },
+  }),
 );
 
 server.tool(
@@ -287,7 +285,7 @@ server.tool(
   "navigate",
   "Navigate to a URL. Automatically scans the new page after loading.",
   { url: z.string().describe("URL to navigate to") },
-  async ({ url }) => {
+  async ({ url }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
       await navigateTo(client, url);
@@ -296,7 +294,7 @@ server.tool(
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
     }
-  },
+  }),
 );
 
 server.tool(
