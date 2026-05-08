@@ -1,5 +1,9 @@
 // Injectable JS derived from Vimium's link_hints.js and dom_utils.js.
 // Runs in the browser context via CDP Runtime.evaluate.
+//
+// The scanner's ONLY job is discovery: find interactive elements and report
+// their affordance + screen coordinates. All interaction goes through CDP
+// input events (mouse clicks, keyboard input) — never DOM manipulation.
 
 export const SCANNER_JS = `(() => {
   // --- Visibility (from Vimium's DomUtils.getVisibleClientRect + cropRectToVisible) ---
@@ -22,7 +26,6 @@ export const SCANNER_JS = `(() => {
     const rects = element.getClientRects();
     for (const raw of rects) {
       if ((raw.width === 0 || raw.height === 0)) {
-        // Check for floated/absolute children (Vimium's trick)
         for (const child of element.children) {
           const cs = getComputedStyle(child);
           if (cs.float === "none" && !["absolute", "fixed"].includes(cs.position)) continue;
@@ -74,8 +77,6 @@ export const SCANNER_JS = `(() => {
            role === "menuitemcheckbox" || role === "menuitemradio";
   }
 
-  // --- Affordance assignment ---
-
   function getAffordance(el) {
     if (isTypeable(el)) return "TYPE";
     if (isSelectable(el)) return "SELECT";
@@ -115,7 +116,6 @@ export const SCANNER_JS = `(() => {
     const ce = el.getAttribute("contentEditable");
     if (ce != null && ["", "contenteditable", "true"].includes(ce.toLowerCase())) return true;
 
-    // jsaction (Google's event system)
     if (el.hasAttribute("jsaction")) {
       const rules = el.getAttribute("jsaction").split(";");
       for (const rule of rules) {
@@ -148,11 +148,9 @@ export const SCANNER_JS = `(() => {
         return el.clientHeight < el.scrollHeight && el.scrollHeight - el.clientHeight > 10;
     }
 
-    // tabindex
     const tabIdx = el.getAttribute("tabindex");
     if (tabIdx != null && parseInt(tabIdx) >= 0) return true;
 
-    // Class name heuristic (Vimium's "button"/"btn" check)
     const cls = (el.getAttribute("class") || "").toLowerCase();
     if (cls.includes("button") || cls.includes("btn")) return true;
 
@@ -201,8 +199,10 @@ export const SCANNER_JS = `(() => {
 
   const elements = getAllElements(document.documentElement);
   const hints = [];
+  // __webpilotRects stores the click-target coordinates for every element.
+  // All interaction uses these coords via CDP input events.
   window.__webpilot = [];
-  window.__webpilotIframes = {};
+  window.__webpilotRects = {};
   let id = 0;
 
   for (const el of elements) {
@@ -212,9 +212,9 @@ export const SCANNER_JS = `(() => {
     hints.push({ el, rect, id });
   }
 
-  // Scan same-origin iframes for editable elements (Google Docs, TinyMCE, etc.)
-  // These editors hide a contenteditable inside an offscreen iframe for keystroke
-  // capture. The visible editor surface is usually a sibling element (canvas, div).
+  // Scan same-origin iframes for editable elements invisible to the main DOM.
+  // The input target lives in the iframe; the visible surface is in the main doc.
+  // We find the iframe, then walk UP to its nearest visible ancestor for coords.
   const iframes = document.querySelectorAll("iframe");
   for (const iframe of iframes) {
     try {
@@ -223,47 +223,26 @@ export const SCANNER_JS = `(() => {
       const editables = iDoc.querySelectorAll('[contenteditable="true"], [role="textbox"]');
       if (editables.length === 0) continue;
 
-      // The iframe itself may be offscreen (Google Docs puts it at top:-10000).
-      // Find the visible editor surface — look for known editor containers.
-      const editorSelectors = [
-        ".kix-appview-editor",       // Google Docs
-        ".kix-page",                 // Google Docs page
-        "[role='textbox']",          // Generic ARIA textbox
-        ".editor-container",         // Common pattern
-        "[contenteditable='true']",  // Direct contenteditable in main doc
-        "canvas",                    // Canvas-based editors
-      ];
+      // Walk from the iframe up through the main document ancestors to find
+      // a visible element large enough to be the editor surface.
       let visibleRect = null;
-      for (const sel of editorSelectors) {
-        const el = document.querySelector(sel);
-        if (el) {
-          const r = el.getBoundingClientRect();
-          const cropped = cropRectToVisible(r);
-          if (cropped && cropped.width > 50 && cropped.height > 50) {
-            visibleRect = cropped;
-            break;
-          }
-        }
-      }
-
-      // Fallback: use iframe rect if it's actually visible
-      if (!visibleRect) {
-        const iframeR = iframe.getBoundingClientRect();
-        const cropped = cropRectToVisible(iframeR);
-        if (cropped && cropped.width > 3 && cropped.height > 3) {
+      let node = iframe;
+      while (node) {
+        const r = node.getBoundingClientRect();
+        const cropped = cropRectToVisible(r);
+        if (cropped && cropped.width > 50 && cropped.height > 50) {
           visibleRect = cropped;
+          break;
         }
+        node = node.parentElement;
       }
-
       if (!visibleRect) continue;
 
       for (const el of editables) {
-        const label = el.getAttribute("aria-label") || el.getAttribute("role") || "editor";
-        hints.push({ el, rect: visibleRect, id, iframe: true });
+        const label = el.getAttribute("aria-label") || "editor";
+        hints.push({ el, rect: visibleRect, id, iframeEditor: true, label });
       }
-    } catch(e) {
-      // Cross-origin iframe — skip
-    }
+    } catch(e) {}
   }
 
   // False positive filtering (Vimium's descendant check)
@@ -273,6 +252,7 @@ export const SCANNER_JS = `(() => {
 
   for (let i = hints.length - 1; i >= 0; i--) {
     const hint = hints[i];
+    if (hint.iframeEditor) { filtered.push(hint); continue; }
     const tag = hint.el.tagName.toLowerCase();
     const cls = (hint.el.getAttribute("class") || "").toLowerCase();
     const isPossibleFP = tag === "span" || cls.includes("button") || cls.includes("btn");
@@ -292,16 +272,16 @@ export const SCANNER_JS = `(() => {
   }
   filtered.reverse();
 
-  // Overlap detection (Vimium's elementFromPoint check)
+  // Overlap detection (Vimium's elementFromPoint check) — skip for iframe editors
   const results = [];
   for (const hint of filtered) {
+    if (hint.iframeEditor) { results.push(hint); continue; }
     const r = hint.rect;
     const midX = r.left + r.width * 0.5;
     const midY = r.top + r.height * 0.5;
     const found = document.elementFromPoint(midX, midY);
     if (!found) continue;
     if (!(hint.el.contains(found) || found.contains(hint.el))) {
-      // Check corners
       let cornerHit = false;
       for (const y of [r.top + 0.1, r.top + r.height - 0.1]) {
         for (const x of [r.left + 0.1, r.left + r.width - 0.1]) {
@@ -322,15 +302,22 @@ export const SCANNER_JS = `(() => {
   const groups = { PRESS: [], TYPE: [], SELECT: [], TOGGLE: [] };
   for (const hint of results) {
     const el = hint.el;
-    const affordance = getAffordance(el);
-    const tag = el.tagName.toLowerCase();
-    const label = getLabel(el);
+    const r = hint.rect;
+
+    // Force iframe editor elements to TYPE regardless of main-doc classification
+    const affordance = hint.iframeEditor ? "TYPE" : getAffordance(el);
+    const tag = hint.iframeEditor ? "editor" : el.tagName.toLowerCase();
+    const label = hint.iframeEditor ? hint.label : getLabel(el);
     const entry = { id: id, tag, label };
 
     if (affordance === "TYPE") {
-      entry.value = el.value || el.textContent?.trim().substring(0, 200) || "";
-      entry.inputType = (el.type || "text").toLowerCase();
-      if (el.placeholder) entry.placeholder = el.placeholder;
+      if (!hint.iframeEditor) {
+        entry.value = el.value || el.textContent?.trim().substring(0, 200) || "";
+        entry.inputType = (el.type || "text").toLowerCase();
+        if (el.placeholder) entry.placeholder = el.placeholder;
+      } else {
+        entry.inputType = "editor";
+      }
     } else if (affordance === "SELECT") {
       entry.value = el.value || "";
       entry.options = Array.from(el.options || []).map(o => o.textContent?.trim() || o.value).slice(0, 30);
@@ -340,7 +327,6 @@ export const SCANNER_JS = `(() => {
         entry.checked = el.getAttribute("aria-checked") === "true";
       }
     } else {
-      // PRESS
       if (tag === "a" && el.href) {
         try {
           const url = new URL(el.href);
@@ -351,11 +337,12 @@ export const SCANNER_JS = `(() => {
       }
     }
 
+    // Store element ref AND its click coordinates — interaction uses coords only
     window.__webpilot[id] = el;
-    if (hint.iframe) {
-      window.__webpilotIframes[id] = true;
-      entry.iframe = true;
-    }
+    window.__webpilotRects[id] = {
+      x: r.left + r.width / 2,
+      y: r.top + r.height / 2,
+    };
     groups[affordance].push(entry);
     id++;
   }
@@ -368,69 +355,17 @@ export const SCANNER_JS = `(() => {
   };
 })()`;
 
-export const PRESS_JS = `((id) => {
-  const el = window.__webpilot?.[id];
-  if (!el) return { error: "Element not found. Run scan first." };
-  if (!el.isConnected) return { error: "Element is stale (DOM changed). Run scan again." };
-  el.click();
-  return { ok: true };
+// Returns { x, y } click coordinates for an element, or null if not found.
+export const GET_RECT_JS = `((id) => {
+  return window.__webpilotRects?.[id] ?? null;
 })`;
 
-export const TYPE_JS = `((id, text, clearFirst) => {
+// Check if element exists and is connected. Returns tag name or error.
+export const CHECK_JS = `((id) => {
   const el = window.__webpilot?.[id];
-  if (!el) return { error: "Element not found. Run scan first." };
-  if (!el.isConnected) return { error: "Element is stale. Run scan again." };
-
-  el.focus();
-  el.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
-  el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-
-  const isContentEditable = el.isContentEditable && el.tagName.toLowerCase() !== "input" && el.tagName.toLowerCase() !== "textarea";
-  const isInput = el.tagName.toLowerCase() === "input" || el.tagName.toLowerCase() === "textarea";
-
-  if (clearFirst) {
-    if (isContentEditable) {
-      // Select all content and delete it
-      const sel = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      document.execCommand("delete", false);
-    } else if (isInput) {
-      // Use native setter to clear — triggers React's internal tracking
-      const proto = el.tagName.toLowerCase() === "textarea"
-        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      if (nativeSetter) {
-        nativeSetter.call(el, "");
-      } else {
-        el.value = "";
-      }
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
-    }
-  }
-
-  if (isContentEditable) {
-    // execCommand triggers the full browser input pipeline:
-    // beforeinput → input → DOM mutation — exactly what LinkedIn, Slack, etc. expect
-    document.execCommand("insertText", false, text);
-  } else if (isInput) {
-    // Native setter trick: set value through the prototype setter so React's
-    // value tracking sees it as a real change, not a programmatic override
-    const proto = el.tagName.toLowerCase() === "textarea"
-      ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (nativeSetter) {
-      nativeSetter.call(el, text);
-    } else {
-      el.value = text;
-    }
-    el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
-  return { ok: true, value: el.value ?? el.textContent?.substring(0, 200) };
+  if (!el) return { error: "not_found" };
+  if (!el.isConnected) return { error: "stale" };
+  return { tag: el.tagName.toLowerCase(), ok: true };
 })`;
 
 export const SELECT_JS = `((id, value) => {
@@ -449,17 +384,7 @@ export const SELECT_JS = `((id, value) => {
   return { ok: true, value: option.textContent.trim() };
 })`;
 
-export const TOGGLE_JS = `((id) => {
-  const el = window.__webpilot?.[id];
-  if (!el) return { error: "Element not found. Run scan first." };
-  if (!el.isConnected) return { error: "Element is stale. Run scan again." };
-  el.click();
-  const checked = el.checked ?? el.getAttribute("aria-checked") === "true";
-  return { ok: true, checked };
-})`;
-
 export const READ_JS = `(() => {
-  // Try <main>, then <article>, then largest text block
   const main = document.querySelector("main") || document.querySelector("article");
   if (main) return { text: main.innerText.substring(0, 8000) };
 

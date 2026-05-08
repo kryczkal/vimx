@@ -1,33 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation, ensureBrowser } from "./cdp.js";
-import { SCANNER_JS, PRESS_JS, TYPE_JS, SELECT_JS, TOGGLE_JS, READ_JS } from "./scanner.js";
+import type CDP from "chrome-remote-interface";
+import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation } from "./cdp.js";
+import { SCANNER_JS, GET_RECT_JS, CHECK_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
+// ── Helpers ──
 
 interface ScanResult {
   url: string;
   title: string;
-  groups: {
-    PRESS: ScanEntry[];
-    TYPE: ScanEntry[];
-    SELECT: ScanEntry[];
-    TOGGLE: ScanEntry[];
-  };
+  groups: Record<string, { id: number; tag: string; label: string; value?: string; inputType?: string; placeholder?: string; options?: string[]; checked?: boolean; href?: string }[]>;
   total: number;
-}
-
-interface ScanEntry {
-  id: number;
-  tag: string;
-  label: string;
-  value?: string;
-  inputType?: string;
-  placeholder?: string;
-  options?: string[];
-  checked?: boolean;
-  href?: string;
 }
 
 function formatScanResult(scan: ScanResult): string {
@@ -37,7 +23,7 @@ function formatScanResult(scan: ScanResult): string {
   lines.push(`Elements: ${scan.total}`);
   lines.push("");
 
-  if (scan.groups.PRESS.length > 0) {
+  if (scan.groups.PRESS?.length > 0) {
     lines.push("PRESS → use press(id)");
     for (const e of scan.groups.PRESS) {
       const href = e.href ? ` → ${e.href}` : "";
@@ -46,7 +32,7 @@ function formatScanResult(scan: ScanResult): string {
     lines.push("");
   }
 
-  if (scan.groups.TYPE.length > 0) {
+  if (scan.groups.TYPE?.length > 0) {
     lines.push("TYPE → use type(id, text)");
     for (const e of scan.groups.TYPE) {
       const val = e.value ? ` value="${e.value}"` : "";
@@ -56,7 +42,7 @@ function formatScanResult(scan: ScanResult): string {
     lines.push("");
   }
 
-  if (scan.groups.SELECT.length > 0) {
+  if (scan.groups.SELECT?.length > 0) {
     lines.push("SELECT → use select(id, value)");
     for (const e of scan.groups.SELECT) {
       const opts = e.options?.join(", ") || "";
@@ -65,7 +51,7 @@ function formatScanResult(scan: ScanResult): string {
     lines.push("");
   }
 
-  if (scan.groups.TOGGLE.length > 0) {
+  if (scan.groups.TOGGLE?.length > 0) {
     lines.push("TOGGLE → use toggle(id)");
     for (const e of scan.groups.TOGGLE) {
       const state = e.checked ? "✓" : "○";
@@ -90,9 +76,7 @@ async function scanWithRetry(): Promise<string> {
       const client = await getClient(CDP_PORT);
       const result = await evaluate(client, SCANNER_JS) as ScanResult;
       if (result.total > 0) return formatScanResult(result);
-    } catch {
-      // Connection lost during navigation — retry
-    }
+    } catch {}
     await new Promise(r => setTimeout(r, delay));
   }
   return runScan();
@@ -106,9 +90,41 @@ function err(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true };
 }
 
+// ── CDP input primitives ──
+// Every interaction goes through these. No DOM manipulation for interaction.
+
+async function cdpClick(client: CDP.Client, x: number, y: number) {
+  await client.Input.dispatchMouseEvent({ type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await client.Input.dispatchMouseEvent({ type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+async function cdpType(client: CDP.Client, text: string) {
+  await client.Input.insertText({ text });
+}
+
+async function cdpSelectAll(client: CDP.Client) {
+  await client.Input.dispatchKeyEvent({ type: "keyDown", key: "a", code: "KeyA", modifiers: 8 });
+  await client.Input.dispatchKeyEvent({ type: "keyUp", key: "a", code: "KeyA", modifiers: 8 });
+}
+
+async function cdpBackspace(client: CDP.Client) {
+  await client.Input.dispatchKeyEvent({ type: "keyDown", key: "Backspace", code: "Backspace" });
+  await client.Input.dispatchKeyEvent({ type: "keyUp", key: "Backspace", code: "Backspace" });
+}
+
+async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number } | null> {
+  return await evaluate(client, `${GET_RECT_JS}(${id})`) as { x: number; y: number } | null;
+}
+
+async function checkElement(client: CDP.Client, id: number): Promise<{ error?: string; tag?: string; ok?: boolean }> {
+  return await evaluate(client, `${CHECK_JS}(${id})`) as { error?: string; tag?: string; ok?: boolean };
+}
+
+// ── Server ──
+
 const server = new McpServer({
   name: "webpilot",
-  version: "0.1.0",
+  version: "0.2.0",
 });
 
 server.tool(
@@ -131,32 +147,23 @@ server.tool(
   async ({ id }) => {
     try {
       const client = await getClient(CDP_PORT);
-
-      const check = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
-        if (!el) return { error: "not_found" };
-        if (!el.isConnected) return { error: "stale" };
-        return { tag: el.tagName.toLowerCase(), href: el.href || null, ok: true };
-      })()`) as { error?: string; tag?: string; href?: string | null; ok?: boolean };
-
+      const check = await checkElement(client, id);
       if (check.error === "not_found") return err("Element not found. Run scan first.");
       if (check.error === "stale") return err("Element is stale (page changed). Run scan again.");
 
+      const rect = await getRect(client, id);
+      if (!rect) return err("Element coordinates not found. Run scan first.");
+
       const urlBefore = await evaluate(client, "location.href") as string;
+      await cdpClick(client, rect.x, rect.y);
 
-      await evaluate(client, `${PRESS_JS}(${id})`);
-
-      // Detect if press triggered navigation
       await new Promise(r => setTimeout(r, 300));
       let navigated = false;
       try {
         const urlAfter = await evaluate(client, "location.href") as string;
         navigated = urlAfter !== urlBefore;
-        if (navigated) {
-          await waitForNavigation(client);
-        }
+        if (navigated) await waitForNavigation(client);
       } catch {
-        // Connection lost = full page navigation, need to reconnect
         await new Promise(r => setTimeout(r, 1000));
         navigated = true;
       }
@@ -184,53 +191,26 @@ server.tool(
   async ({ id, text, clear }) => {
     try {
       const client = await getClient(CDP_PORT);
+      const check = await checkElement(client, id);
+      if (check.error === "not_found") return err("Element not found. Run scan first.");
+      if (check.error === "stale") return err("Element is stale. Run scan again.");
 
-      // Check if this is an iframe element — needs CDP-level input
-      const isIframe = await evaluate(client, `!!window.__webpilotIframes?.[${id}]`) as boolean;
+      const rect = await getRect(client, id);
+      if (!rect) return err("Element coordinates not found. Run scan first.");
 
-      if (isIframe) {
-        // Focus the element by clicking its area, then use CDP Input.insertText
-        // This works for Google Docs, canvas editors, any iframe-based input
-        const rect = await evaluate(client, `(() => {
-          const el = window.__webpilot?.[${id}];
-          if (!el) return null;
-          el.focus();
-          // Walk up to find the iframe's rect in the main document
-          let node = el;
-          while (node && node.tagName !== "IFRAME" && node !== document.documentElement) {
-            node = node.ownerDocument?.defaultView?.frameElement || node.parentElement;
-          }
-          if (!node) return null;
-          const r = node.getBoundingClientRect ? node.getBoundingClientRect() : el.getBoundingClientRect();
-          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        })()`) as { x: number; y: number } | null;
+      // Click to focus
+      await cdpClick(client, rect.x, rect.y);
+      await new Promise(r => setTimeout(r, 150));
 
-        if (!rect) return err("Element not found. Run scan first.");
-
-        // Click to focus the editor area
-        await client.Input.dispatchMouseEvent({ type: "mousePressed", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
-        await client.Input.dispatchMouseEvent({ type: "mouseReleased", x: rect.x, y: rect.y, button: "left", clickCount: 1 });
-        await new Promise(r => setTimeout(r, 200));
-
-        if (clear) {
-          // Select all + delete
-          await client.Input.dispatchKeyEvent({ type: "keyDown", key: "a", code: "KeyA", modifiers: 8 }); // Ctrl+A
-          await client.Input.dispatchKeyEvent({ type: "keyUp", key: "a", code: "KeyA", modifiers: 8 });
-          await client.Input.dispatchKeyEvent({ type: "keyDown", key: "Backspace", code: "Backspace" });
-          await client.Input.dispatchKeyEvent({ type: "keyUp", key: "Backspace", code: "Backspace" });
-          await new Promise(r => setTimeout(r, 100));
-        }
-
-        // Insert text at browser level — bypasses DOM entirely
-        await client.Input.insertText({ text });
-        return ok(`Typed into [${id}] (via CDP input). Text: "${text.substring(0, 80)}"`);
+      if (clear) {
+        await cdpSelectAll(client);
+        await new Promise(r => setTimeout(r, 50));
+        await cdpBackspace(client);
+        await new Promise(r => setTimeout(r, 50));
       }
 
-      const result = await evaluate(client, `${TYPE_JS}(${id}, ${JSON.stringify(text)}, ${clear})`) as {
-        ok?: boolean; error?: string; value?: string;
-      };
-      if (result.error) return err(result.error);
-      return ok(`Typed into [${id}]. Value: "${result.value}"`);
+      await cdpType(client, text);
+      return ok(`Typed into [${id}]. Text: "${text.substring(0, 80)}"`);
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -265,11 +245,23 @@ server.tool(
   async ({ id }) => {
     try {
       const client = await getClient(CDP_PORT);
-      const result = await evaluate(client, `${TOGGLE_JS}(${id})`) as {
-        ok?: boolean; error?: string; checked?: boolean;
-      };
-      if (result.error) return err(result.error);
-      return ok(`Toggled [${id}]. Now: ${result.checked ? "✓ checked" : "○ unchecked"}`);
+      const check = await checkElement(client, id);
+      if (check.error === "not_found") return err("Element not found. Run scan first.");
+      if (check.error === "stale") return err("Element is stale. Run scan again.");
+
+      const rect = await getRect(client, id);
+      if (!rect) return err("Element coordinates not found. Run scan first.");
+
+      await cdpClick(client, rect.x, rect.y);
+
+      // Read back state
+      const state = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el) return { checked: false };
+        return { checked: el.checked ?? el.getAttribute("aria-checked") === "true" };
+      })()`) as { checked: boolean };
+
+      return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}`);
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
     }
