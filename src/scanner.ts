@@ -379,9 +379,12 @@ export const SELECT_JS = `((id, value) => {
     const available = Array.from(el.options).map(o => o.textContent.trim());
     return { error: "Option not found. Available: " + JSON.stringify(available) };
   }
-  el.value = option.value;
+  const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+  if (set) set.call(el, option.value);
+  else el.value = option.value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  return { ok: true, value: option.textContent.trim() };
+  return { ok: true, selected: option.textContent.trim(), actual: el.options[el.selectedIndex]?.textContent?.trim() };
 })`;
 
 export const READ_JS = `(() => {

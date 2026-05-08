@@ -24,7 +24,7 @@ function formatScanResult(scan: ScanResult): string {
   lines.push("");
 
   if (scan.groups.PRESS?.length > 0) {
-    lines.push("PRESS → use press(id)");
+    lines.push("PRESS → press(id)");
     for (const e of scan.groups.PRESS) {
       const href = e.href ? ` → ${e.href}` : "";
       lines.push(`  [${e.id}] ${e.tag} "${e.label}"${href}`);
@@ -33,7 +33,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.TYPE?.length > 0) {
-    lines.push("TYPE → use type(id, text)");
+    lines.push("TYPE → type(id, text)");
     for (const e of scan.groups.TYPE) {
       const val = e.value ? ` value="${e.value}"` : "";
       const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
@@ -43,7 +43,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.SELECT?.length > 0) {
-    lines.push("SELECT → use select(id, value)");
+    lines.push("SELECT → select(id, value)");
     for (const e of scan.groups.SELECT) {
       const opts = e.options?.join(", ") || "";
       lines.push(`  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`);
@@ -52,7 +52,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.TOGGLE?.length > 0) {
-    lines.push("TOGGLE → use toggle(id)");
+    lines.push("TOGGLE → toggle(id)");
     for (const e of scan.groups.TOGGLE) {
       const state = e.checked ? "✓" : "○";
       lines.push(`  [${e.id}] ${e.tag} "${e.label}" ${state}`);
@@ -69,16 +69,23 @@ async function runScan(): Promise<string> {
   return formatScanResult(result);
 }
 
+// Waits for DOM mutations to settle, then scans. Handles SPA transitions
+// where the page has existing elements but new ones are still rendering.
+async function waitForDomSettle(client: CDP.Client, timeoutMs = 4000): Promise<void> {
+  await evaluate(client, `new Promise(resolve => {
+    let timer;
+    const done = () => { if (obs) obs.disconnect(); resolve(); };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(done, 400); };
+    const obs = new MutationObserver(reset);
+    obs.observe(document.body, { childList: true, subtree: true });
+    reset();
+    setTimeout(done, ${timeoutMs});
+  })`);
+}
+
 async function scanWithRetry(): Promise<string> {
-  const delays = [500, 1200, 2500];
-  for (const delay of delays) {
-    try {
-      const client = await getClient(CDP_PORT);
-      const result = await evaluate(client, SCANNER_JS) as ScanResult;
-      if (result.total > 0) return formatScanResult(result);
-    } catch {}
-    await new Promise(r => setTimeout(r, delay));
-  }
+  const client = await getClient(CDP_PORT);
+  await waitForDomSettle(client);
   return runScan();
 }
 
@@ -110,6 +117,30 @@ async function cdpSelectAll(client: CDP.Client) {
 async function cdpBackspace(client: CDP.Client) {
   await client.Input.dispatchKeyEvent({ type: "keyDown", key: "Backspace", code: "Backspace" });
   await client.Input.dispatchKeyEvent({ type: "keyUp", key: "Backspace", code: "Backspace" });
+}
+
+const KEY_MAP: Record<string, { key: string; code: string }> = {
+  enter: { key: "Enter", code: "Enter" },
+  tab: { key: "Tab", code: "Tab" },
+  escape: { key: "Escape", code: "Escape" },
+  backspace: { key: "Backspace", code: "Backspace" },
+  delete: { key: "Delete", code: "Delete" },
+  arrowup: { key: "ArrowUp", code: "ArrowUp" },
+  arrowdown: { key: "ArrowDown", code: "ArrowDown" },
+  arrowleft: { key: "ArrowLeft", code: "ArrowLeft" },
+  arrowright: { key: "ArrowRight", code: "ArrowRight" },
+  space: { key: " ", code: "Space" },
+  home: { key: "Home", code: "Home" },
+  end: { key: "End", code: "End" },
+  pageup: { key: "PageUp", code: "PageUp" },
+  pagedown: { key: "PageDown", code: "PageDown" },
+};
+
+async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
+  const mapped = KEY_MAP[keyName.toLowerCase()];
+  if (!mapped) throw new Error(`Unknown key: ${keyName}. Available: ${Object.keys(KEY_MAP).join(", ")}`);
+  await client.Input.dispatchKeyEvent({ type: "keyDown", ...mapped, modifiers });
+  await client.Input.dispatchKeyEvent({ type: "keyUp", ...mapped, modifiers });
 }
 
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number } | null> {
@@ -208,6 +239,21 @@ server.tool(
       }
 
       await cdpType(client, text);
+
+      // Widget inputs (time, date, color, range) ignore insertText —
+      // their native picker UI intercepts input. Fall back to JS value set.
+      await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el || el.tagName !== "INPUT") return;
+        const widgetTypes = ["time","date","datetime-local","month","week","number","range","color"];
+        if (!widgetTypes.includes(el.type)) return;
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        if (set) set.call(el, ${JSON.stringify(text)});
+        else el.value = ${JSON.stringify(text)};
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      })()`);
+
       return ok(`Typed into [${id}]. Text: "${text.substring(0, 80)}"`);
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
@@ -226,10 +272,10 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const result = await evaluate(client, `${SELECT_JS}(${id}, ${JSON.stringify(value)})`) as {
-        ok?: boolean; error?: string; value?: string;
+        ok?: boolean; error?: string; selected?: string; actual?: string;
       };
       if (result.error) return err(result.error);
-      return ok(`Selected "${result.value}" on [${id}].`);
+      return ok(`Selected "${result.selected}" on [${id}]. Showing: "${result.actual}"`);
     } catch (e) {
       return err(`Select failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -262,6 +308,30 @@ server.tool(
       return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}`);
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
+);
+
+server.tool(
+  "key",
+  `Send a keyboard key press. Use for confirming actions (Enter), dismissing popups (Escape), navigating fields (Tab), or moving through lists (ArrowDown/ArrowUp). Available keys: ${Object.keys(KEY_MAP).join(", ")}. Supports ctrl/shift/alt modifiers.`,
+  {
+    key: z.string().describe("Key name: enter, tab, escape, backspace, arrowdown, arrowup, space, etc."),
+    ctrl: z.boolean().optional().default(false).describe("Hold Ctrl"),
+    shift: z.boolean().optional().default(false).describe("Hold Shift"),
+    alt: z.boolean().optional().default(false).describe("Hold Alt"),
+  },
+  async ({ key, ctrl, shift, alt }) => serialized(async () => {
+    try {
+      const client = await getClient(CDP_PORT);
+      let modifiers = 0;
+      if (alt) modifiers |= 1;
+      if (ctrl) modifiers |= 2;
+      if (shift) modifiers |= 8;
+      await cdpKey(client, key, modifiers);
+      return ok(`Pressed ${[alt && "Alt", ctrl && "Ctrl", shift && "Shift", key].filter(Boolean).join("+")}`);
+    } catch (e) {
+      return err(`Key failed: ${e instanceof Error ? e.message : e}`);
     }
   }),
 );
