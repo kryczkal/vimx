@@ -63,15 +63,8 @@ function formatScanResult(scan: ScanResult): string {
   return lines.join("\n");
 }
 
-async function runScan(): Promise<string> {
+async function runScan(): Promise<ScanResult> {
   const client = await getClient(CDP_PORT);
-  const result = await evaluate(client, SCANNER_JS) as ScanResult;
-  return formatScanResult(result);
-}
-
-// Waits for DOM mutations to settle, then scans. Handles SPA transitions
-// where the page has existing elements but new ones are still rendering.
-async function waitForDomSettle(client: CDP.Client, timeoutMs = 4000): Promise<void> {
   await evaluate(client, `new Promise(resolve => {
     let timer;
     const done = () => { if (obs) obs.disconnect(); resolve(); };
@@ -79,14 +72,49 @@ async function waitForDomSettle(client: CDP.Client, timeoutMs = 4000): Promise<v
     const obs = new MutationObserver(reset);
     obs.observe(document.body, { childList: true, subtree: true });
     reset();
-    setTimeout(done, ${timeoutMs});
+    setTimeout(done, 4000);
   })`);
+  return await evaluate(client, SCANNER_JS) as ScanResult;
 }
 
-async function scanWithRetry(): Promise<string> {
-  const client = await getClient(CDP_PORT);
-  await waitForDomSettle(client);
-  return runScan();
+async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
+  const ids = await evaluate(client, `Object.keys(window.__webpilotRects || {}).map(Number)`) as number[];
+  return new Set(ids || []);
+}
+
+function allEntries(result: ScanResult) {
+  return [
+    ...(result.groups.PRESS || []),
+    ...(result.groups.TYPE || []),
+    ...(result.groups.SELECT || []),
+    ...(result.groups.TOGGLE || []),
+  ];
+}
+
+function formatDelta(before: Set<number>, result: ScanResult): string {
+  const full = formatScanResult(result);
+  const entries = allEntries(result);
+  const afterIds = new Set(entries.map(e => e.id));
+
+  const added = [...afterIds].filter(id => !before.has(id));
+  const removed = [...before].filter(id => !afterIds.has(id));
+
+  if (added.length === 0 && removed.length === 0) return full;
+
+  const lines: string[] = [];
+  lines.push(`CHANGED: +${added.length} added, -${removed.length} removed\n`);
+
+  const newEntries = entries.filter(e => added.includes(e.id));
+  if (newEntries.length > 0 && newEntries.length <= 30) {
+    lines.push("NEW:");
+    for (const e of newEntries) {
+      const label = e.label ? ` "${(e.label as string).substring(0, 60)}"` : "";
+      lines.push(`  [${e.id}] ${e.tag}${label}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n") + "\n" + full;
 }
 
 function ok(text: string) {
@@ -238,7 +266,7 @@ server.tool(
   {},
   async () => {
     try {
-      return ok(await runScan());
+      return ok(formatScanResult(await runScan()));
     } catch (e) {
       return err(`Scan failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -259,6 +287,7 @@ server.tool(
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
 
+      const before = await snapshotIds(client);
       const urlBefore = await evaluate(client, "location.href") as string;
       await cdpClick(client, rect.x, rect.y);
 
@@ -274,7 +303,8 @@ server.tool(
       }
 
       try {
-        const text = await scanWithRetry();
+        const result = await runScan();
+        const text = formatDelta(before, result);
         return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}\n\n${text}`);
       } catch {
         return ok(`Pressed [${id}]. Page is loading — call scan when ready.`);
@@ -478,7 +508,7 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       await navigateTo(client, url);
-      const text = await scanWithRetry();
+      const text = formatScanResult(await runScan());
       return ok(`Navigated to ${url}.\n\n${text}`);
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
@@ -510,7 +540,7 @@ server.tool(
   async ({ tab_id }) => {
     try {
       await switchTab(CDP_PORT, tab_id);
-      const text = await scanWithRetry();
+      const text = formatScanResult(await runScan());
       return ok(`Switched tab.\n\n${text}`);
     } catch (e) {
       return err(`Switch failed: ${e instanceof Error ? e.message : e}`);
