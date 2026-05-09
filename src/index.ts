@@ -141,6 +141,37 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
   if (!mapped) throw new Error(`Unknown key: ${keyName}. Available: ${Object.keys(KEY_MAP).join(", ")}`);
   await client.Input.dispatchKeyEvent({ type: "keyDown", ...mapped, modifiers });
   await client.Input.dispatchKeyEvent({ type: "keyUp", ...mapped, modifiers });
+
+  // CDP dispatchKeyEvent fires DOM events but doesn't trigger the browser's
+  // default actions (form submit, button activate). Apply them via JS.
+  if (modifiers === 0 && keyName.toLowerCase() === "enter") {
+    await evaluate(client, `(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return;
+      const form = el.closest?.("form");
+      if (form) { form.requestSubmit(); return; }
+      if (el.tagName === "A" || el.tagName === "BUTTON" ||
+          el.getAttribute("role") === "button" || el.getAttribute("role") === "link") {
+        el.click();
+      }
+    })()`);
+  }
+
+  if (modifiers === 0 && keyName.toLowerCase() === "space") {
+    await evaluate(client, `(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return;
+      const tag = el.tagName;
+      if (tag === "INPUT" && (el.type === "text" || el.type === "search" || el.type === "password")) return;
+      if (tag === "TEXTAREA") return;
+      if (el.isContentEditable) return;
+      if (tag === "BUTTON" || tag === "A" ||
+          el.getAttribute("role") === "button" ||
+          (tag === "INPUT" && (el.type === "checkbox" || el.type === "radio"))) {
+        el.click();
+      }
+    })()`);
+  }
 }
 
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number } | null> {
@@ -307,20 +338,7 @@ server.tool(
 
       if (confirm) {
         await new Promise(r => setTimeout(r, 400));
-        if (confirm.toLowerCase() === "enter") {
-          // CDP keyDown Enter doesn't trigger form.requestSubmit() on SPAs.
-          // Try requestSubmit first (fires the submit event like a real Enter),
-          // fall back to CDP key if no form exists.
-          const submitted = await evaluate(client, `(() => {
-            const el = window.__webpilot?.[${id}] || document.activeElement;
-            const form = el?.closest?.("form");
-            if (form) { form.requestSubmit(); return true; }
-            return false;
-          })()`) as boolean;
-          if (!submitted) await cdpKey(client, "enter");
-        } else {
-          await cdpKey(client, confirm);
-        }
+        await cdpKey(client, confirm);
       }
 
       // Readback: check the target element first, but if it's empty and a
