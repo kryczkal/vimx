@@ -307,7 +307,20 @@ server.tool(
 
       if (confirm) {
         await new Promise(r => setTimeout(r, 400));
-        await cdpKey(client, confirm);
+        if (confirm.toLowerCase() === "enter") {
+          // CDP keyDown Enter doesn't trigger form.requestSubmit() on SPAs.
+          // Try requestSubmit first (fires the submit event like a real Enter),
+          // fall back to CDP key if no form exists.
+          const submitted = await evaluate(client, `(() => {
+            const el = window.__webpilot?.[${id}] || document.activeElement;
+            const form = el?.closest?.("form");
+            if (form) { form.requestSubmit(); return true; }
+            return false;
+          })()`) as boolean;
+          if (!submitted) await cdpKey(client, "enter");
+        } else {
+          await cdpKey(client, confirm);
+        }
       }
 
       // Readback: check the target element first, but if it's empty and a
