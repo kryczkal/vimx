@@ -157,32 +157,82 @@ export const SCANNER_JS = `(() => {
     return false;
   }
 
-  // --- Label extraction (from Vimium's generateLinkText) ---
+  // --- Label extraction (from Vimium's generateLinkText + synthetic fallbacks) ---
 
   function getLabel(el) {
     const tag = el.tagName.toLowerCase();
+
+    // Input-specific: associated <label>, then value/placeholder/aria
     if (tag === "input") {
       if (el.labels && el.labels.length > 0) {
         let lt = el.labels[0].textContent.trim();
         if (lt.endsWith(":")) lt = lt.slice(0, -1);
-        return lt.substring(0, 80);
+        if (lt) return lt.substring(0, 80);
       }
       if (el.type === "file") return "Choose File";
       if (el.type !== "password") {
-        return (el.value || el.placeholder || el.getAttribute("aria-label") || el.name || "").substring(0, 80);
+        const v = el.value || el.placeholder || el.getAttribute("aria-label") || el.name || "";
+        if (v) return v.substring(0, 80);
+      } else {
+        const v = el.getAttribute("aria-label") || el.placeholder || "password";
+        if (v) return v.substring(0, 80);
       }
-      return el.getAttribute("aria-label") || el.placeholder || "password";
     }
+
+    // Semantic labels (developer-intended)
     const ariaLabel = el.getAttribute("aria-label");
     if (ariaLabel) return ariaLabel.substring(0, 80);
-    if (tag === "a" && !el.textContent.trim() && el.querySelector("img")) {
-      const img = el.querySelector("img");
-      return (img.alt || img.title || "").substring(0, 80);
+
+    const ariaLabelledBy = el.getAttribute("aria-labelledby");
+    if (ariaLabelledBy) {
+      const ref = document.getElementById(ariaLabelledBy);
+      if (ref?.textContent?.trim()) return ref.textContent.trim().substring(0, 80);
     }
+
+    const title = el.getAttribute("title");
+    if (title) return title.substring(0, 80);
+
+    // Image alt inside links
+    if (tag === "a" && el.querySelector("img")) {
+      const img = el.querySelector("img");
+      const alt = img.alt || img.title;
+      if (alt) return alt.substring(0, 80);
+    }
+
+    // Text content
     const text = el.textContent?.trim();
     if (text) return text.substring(0, 80);
-    if (el.getAttribute("title")) return el.getAttribute("title").substring(0, 80);
-    if (el.getAttribute("placeholder")) return el.getAttribute("placeholder").substring(0, 80);
+
+    const placeholder = el.getAttribute("placeholder");
+    if (placeholder) return placeholder.substring(0, 80);
+
+    // --- Synthetic fallbacks for elements with no visible text ---
+
+    // Data attributes (tooltips, titles)
+    for (const attr of ["data-tooltip", "data-title", "data-label", "data-original-title"]) {
+      const v = el.getAttribute(attr);
+      if (v) return v.substring(0, 80);
+    }
+
+    // SVG <title> child
+    const svgTitle = el.querySelector("svg > title, svg title");
+    if (svgTitle?.textContent?.trim()) return svgTitle.textContent.trim().substring(0, 80);
+
+    // Link href path
+    if (tag === "a" && el.href) {
+      try {
+        const path = new URL(el.href).pathname;
+        const seg = path.split("/").filter(Boolean).pop();
+        if (seg && seg.length > 1 && seg.length < 40) return seg.replace(/[-_]/g, " ");
+      } catch(e) {}
+    }
+
+    // Element id or name, cleaned (camelCase → words, kebab → words)
+    const elId = el.id || el.getAttribute("name");
+    if (elId && elId.length > 1 && elId.length < 40) {
+      return elId.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+    }
+
     return "";
   }
 
@@ -199,19 +249,30 @@ export const SCANNER_JS = `(() => {
 
   const elements = getAllElements(document.documentElement);
   const hints = [];
-  // __webpilotRects stores the click-target coordinates for every element.
-  // All interaction uses these coords via CDP input events.
-  window.__webpilot = [];
+
+  // Stable ID assignment via WeakMap. Same DOM node → same ID across rescans.
+  // WeakMap entries vanish when the element is GC'd (removed from DOM).
+  // Full navigation resets JS context → fresh start from 0.
+  if (!window.__wpIdMap) window.__wpIdMap = new WeakMap();
+  if (!window.__wpNextId) window.__wpNextId = 0;
+
+  function stableId(el) {
+    if (window.__wpIdMap.has(el)) return window.__wpIdMap.get(el);
+    const id = window.__wpNextId++;
+    window.__wpIdMap.set(el, id);
+    return id;
+  }
+
+  window.__webpilot = {};
   window.__webpilotRects = {};
   window.__webpilotLabels = {};
   window.__webpilotAffordances = {};
-  let id = 0;
 
   for (const el of elements) {
     if (!isClickable(el)) continue;
     const rect = getVisibleRect(el);
     if (!rect) continue;
-    hints.push({ el, rect, id });
+    hints.push({ el, rect, id: stableId(el) });
   }
 
   // Scan same-origin iframes for editable elements invisible to the main DOM.
@@ -242,7 +303,7 @@ export const SCANNER_JS = `(() => {
 
       for (const el of editables) {
         const label = el.getAttribute("aria-label") || "editor";
-        hints.push({ el, rect: visibleRect, id, iframeEditor: true, label });
+        hints.push({ el, rect: visibleRect, id: stableId(el), iframeEditor: true, label });
       }
     } catch(e) {}
   }
@@ -310,7 +371,8 @@ export const SCANNER_JS = `(() => {
     const affordance = hint.iframeEditor ? "TYPE" : getAffordance(el);
     const tag = hint.iframeEditor ? "editor" : el.tagName.toLowerCase();
     const label = hint.iframeEditor ? hint.label : getLabel(el);
-    const entry = { id: id, tag, label };
+    const id = hint.id;
+    const entry = { id, tag, label };
 
     if (affordance === "TYPE") {
       if (!hint.iframeEditor) {
@@ -347,14 +409,14 @@ export const SCANNER_JS = `(() => {
     window.__webpilotLabels[id] = label;
     window.__webpilotAffordances[id] = affordance;
     groups[affordance].push(entry);
-    id++;
   }
 
+  const total = Object.keys(window.__webpilotRects).length;
   return {
     url: location.href,
     title: document.title,
     groups,
-    total: id,
+    total,
   };
 })()`;
 
