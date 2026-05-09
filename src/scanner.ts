@@ -199,8 +199,9 @@ export const SCANNER_JS = `(() => {
       if (alt) return alt.substring(0, 80);
     }
 
-    // Text content
-    const text = el.textContent?.trim();
+    // Visible text only — innerText respects display:none, visibility:hidden,
+    // and 0-dimension elements. Prevents ghost text from hidden children.
+    const text = el.innerText?.trim();
     if (text) return text.substring(0, 80);
 
     const placeholder = el.getAttribute("placeholder");
