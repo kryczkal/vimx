@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import type CDP from "chrome-remote-interface";
 import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation, serialized } from "./cdp.js";
-import { SCANNER_JS, GET_RECT_JS, CHECK_JS, SELECT_JS, READ_JS } from "./scanner.js";
+import { SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
 
@@ -151,6 +151,49 @@ async function checkElement(client: CDP.Client, id: number): Promise<{ error?: s
   return await evaluate(client, `${CHECK_JS}(${id})`) as { error?: string; tag?: string; ok?: boolean };
 }
 
+interface ResolveResult {
+  id?: number;
+  label?: string;
+  match?: string;
+  error?: string;
+  message?: string;
+  options?: { id: number; label: string; affordance: string }[];
+}
+
+async function resolveElement(
+  client: CDP.Client,
+  idOrLabel: number | string,
+  affordanceFilter?: string,
+): Promise<{ id: number } | { error: string }> {
+  if (typeof idOrLabel === "number") {
+    const check = await checkElement(client, idOrLabel);
+    if (check.error === "not_found") return { error: "Element not found. Run scan first." };
+    if (check.error === "stale") return { error: "Element is stale. Run scan again." };
+    return { id: idOrLabel };
+  }
+
+  const result = await evaluate(
+    client,
+    `${RESOLVE_JS}(${JSON.stringify(idOrLabel)}, ${affordanceFilter ? JSON.stringify(affordanceFilter) : "null"})`,
+  ) as ResolveResult;
+
+  if (result.error === "ambiguous") {
+    const opts = result.options!.map(o => `  [${o.id}] "${o.label}"`).join("\n");
+    return { error: `Multiple matches for "${idOrLabel}":\n${opts}\nUse a more specific label or pass the id.` };
+  }
+  if (result.error) return { error: result.message! };
+
+  const check = await checkElement(client, result.id!);
+  if (check.error) return { error: `Matched "${result.label}" but element is stale. Run scan again.` };
+  return { id: result.id! };
+}
+
+// Schema for tools that accept id or label
+const elementRef = z.union([
+  z.number().describe("Element ID from scan results"),
+  z.string().describe("Element label text (matched against scan labels)"),
+]);
+
 // ── Server ──
 
 const server = new McpServer({
@@ -173,14 +216,14 @@ server.tool(
 
 server.tool(
   "press",
-  "Press a button, click a link, or activate a pressable element. Only works on elements listed under PRESS in scan results. Automatically re-scans after pressing.",
-  { id: z.number().describe("Element ID from scan results (PRESS group)") },
-  async ({ id }) => serialized(async () => {
+  "Press a button, click a link, or activate a pressable element. Accepts element id (number) or label text (string).",
+  { element: elementRef.describe("Element ID or label text") },
+  async ({ element }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
-      const check = await checkElement(client, id);
-      if (check.error === "not_found") return err("Element not found. Run scan first.");
-      if (check.error === "stale") return err("Element is stale (page changed). Run scan again.");
+      const resolved = await resolveElement(client, element, "PRESS");
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
@@ -201,9 +244,9 @@ server.tool(
 
       try {
         const text = await scanWithRetry();
-        return ok(`Pressed [${id}] (${check.tag}).${navigated ? " Page navigated." : ""}\n\n${text}`);
+        return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}\n\n${text}`);
       } catch {
-        return ok(`Pressed [${id}] (${check.tag}). Page is loading — call scan when ready.`);
+        return ok(`Pressed [${id}]. Page is loading — call scan when ready.`);
       }
     } catch (e) {
       return err(`Press failed: ${e instanceof Error ? e.message : e}`);
@@ -213,24 +256,33 @@ server.tool(
 
 server.tool(
   "type",
-  "Type text into an input field, textarea, or contenteditable element. Only works on elements listed under TYPE in scan results.",
+  "Type text into an input field, textarea, or contenteditable element. Accepts element id (number) or label text (string). Optionally press a confirm key (enter/tab/escape) after typing.",
   {
-    id: z.number().describe("Element ID from scan results (TYPE group)"),
+    element: elementRef.describe("Element ID or label text"),
     text: z.string().describe("Text to type into the element"),
     clear: z.boolean().optional().default(true).describe("Clear existing value first (default: true)"),
+    confirm: z.string().optional().describe("Key to press after typing to confirm (enter, tab, escape). Use for autocomplete fields."),
   },
-  async ({ id, text, clear }) => serialized(async () => {
+  async ({ element, text, clear, confirm }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
-      const check = await checkElement(client, id);
-      if (check.error === "not_found") return err("Element not found. Run scan first.");
-      if (check.error === "stale") return err("Element is stale. Run scan again.");
+      const resolved = await resolveElement(client, element, "TYPE");
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
 
+      // Focus via JS — more reliable than CDP click for establishing focus.
+      // CDP dispatchMouseEvent doesn't always trigger focus on some pages.
+      // Click the element via CDP (for side effects like opening dropdowns),
+      // then ensure focus via JS as the authoritative step.
       await cdpClick(client, rect.x, rect.y);
-      await new Promise(r => setTimeout(r, 150));
+      await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (el && document.activeElement !== el) el.focus();
+      })()`);
+      await new Promise(r => setTimeout(r, 100));
 
       if (clear) {
         await cdpSelectAll(client);
@@ -240,8 +292,7 @@ server.tool(
 
       await cdpType(client, text);
 
-      // Widget inputs (time, date, color, range) ignore insertText —
-      // their native picker UI intercepts input. Fall back to JS value set.
+      // Widget inputs (time, date, color, range) ignore insertText
       await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         if (!el || el.tagName !== "INPUT") return;
@@ -254,7 +305,19 @@ server.tool(
         el.dispatchEvent(new Event("change", { bubbles: true }));
       })()`);
 
-      return ok(`Typed into [${id}]. Text: "${text.substring(0, 80)}"`);
+      if (confirm) {
+        await new Promise(r => setTimeout(r, 100));
+        await cdpKey(client, confirm);
+      }
+
+      // Readback: return what the element ACTUALLY contains
+      const readback = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el) return "";
+        return (el.value ?? el.textContent ?? "").substring(0, 200);
+      })()`) as string;
+
+      return ok(`Typed into [${id}]. Value now: "${readback}"${confirm ? ` (confirmed with ${confirm})` : ""}`);
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -263,14 +326,17 @@ server.tool(
 
 server.tool(
   "select",
-  "Select an option from a dropdown. Only works on elements listed under SELECT in scan results.",
+  "Select an option from a dropdown. Accepts element id (number) or label text (string).",
   {
-    id: z.number().describe("Element ID from scan results (SELECT group)"),
+    element: elementRef.describe("Element ID or label text"),
     value: z.string().describe("Option text or value to select"),
   },
-  async ({ id, value }) => serialized(async () => {
+  async ({ element, value }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
+      const resolved = await resolveElement(client, element, "SELECT");
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
       const result = await evaluate(client, `${SELECT_JS}(${id}, ${JSON.stringify(value)})`) as {
         ok?: boolean; error?: string; selected?: string; actual?: string;
       };
@@ -284,14 +350,14 @@ server.tool(
 
 server.tool(
   "toggle",
-  "Toggle a checkbox, radio button, or switch. Only works on elements listed under TOGGLE in scan results.",
-  { id: z.number().describe("Element ID from scan results (TOGGLE group)") },
-  async ({ id }) => serialized(async () => {
+  "Toggle a checkbox, radio button, or switch. Accepts element id (number) or label text (string).",
+  { element: elementRef.describe("Element ID or label text") },
+  async ({ element }) => serialized(async () => {
     try {
       const client = await getClient(CDP_PORT);
-      const check = await checkElement(client, id);
-      if (check.error === "not_found") return err("Element not found. Run scan first.");
-      if (check.error === "stale") return err("Element is stale. Run scan again.");
+      const resolved = await resolveElement(client, element, "TOGGLE");
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
@@ -329,7 +395,21 @@ server.tool(
       if (ctrl) modifiers |= 2;
       if (shift) modifiers |= 8;
       await cdpKey(client, key, modifiers);
-      return ok(`Pressed ${[alt && "Alt", ctrl && "Ctrl", shift && "Shift", key].filter(Boolean).join("+")}`);
+
+      await new Promise(r => setTimeout(r, 100));
+
+      // Return focused element context so the model knows where it landed
+      const focus = await evaluate(client, `(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return "Focus: none";
+        const tag = el.tagName.toLowerCase();
+        const label = el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.name || "";
+        const val = (el.value ?? el.textContent ?? "").substring(0, 80);
+        return "Focus: " + tag + (label ? ' "' + label + '"' : "") + (val ? ' value="' + val + '"' : "");
+      })()`) as string;
+
+      const keyName = [alt && "Alt", ctrl && "Ctrl", shift && "Shift", key].filter(Boolean).join("+");
+      return ok(`Pressed ${keyName}. ${focus}`);
     } catch (e) {
       return err(`Key failed: ${e instanceof Error ? e.message : e}`);
     }

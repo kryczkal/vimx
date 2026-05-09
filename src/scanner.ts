@@ -203,6 +203,8 @@ export const SCANNER_JS = `(() => {
   // All interaction uses these coords via CDP input events.
   window.__webpilot = [];
   window.__webpilotRects = {};
+  window.__webpilotLabels = {};
+  window.__webpilotAffordances = {};
   let id = 0;
 
   for (const el of elements) {
@@ -337,12 +339,13 @@ export const SCANNER_JS = `(() => {
       }
     }
 
-    // Store element ref AND its click coordinates — interaction uses coords only
     window.__webpilot[id] = el;
     window.__webpilotRects[id] = {
       x: r.left + r.width / 2,
       y: r.top + r.height / 2,
     };
+    window.__webpilotLabels[id] = label;
+    window.__webpilotAffordances[id] = affordance;
     groups[affordance].push(entry);
     id++;
   }
@@ -354,6 +357,45 @@ export const SCANNER_JS = `(() => {
     total: id,
   };
 })()`;
+
+// Resolves a label string to an element ID. Supports exact, then substring match.
+// If affordanceFilter is set, only matches elements of that affordance type.
+export const RESOLVE_JS = `((query, affordanceFilter) => {
+  const labels = window.__webpilotLabels;
+  const affordances = window.__webpilotAffordances;
+  if (!labels) return { error: "not_found", message: "No scan data. Run scan first." };
+
+  const q = query.toLowerCase();
+  const ids = Object.keys(labels).map(Number);
+  const candidates = affordanceFilter
+    ? ids.filter(id => affordances[id] === affordanceFilter)
+    : ids;
+
+  // Exact match (case-insensitive)
+  const exact = candidates.filter(id => labels[id].toLowerCase() === q);
+  if (exact.length === 1) return { id: exact[0], label: labels[exact[0]], match: "exact" };
+
+  // Substring match
+  const sub = candidates.filter(id => labels[id].toLowerCase().includes(q));
+  if (sub.length === 1) return { id: sub[0], label: labels[sub[0]], match: "substring" };
+  if (sub.length > 1 && sub.length <= 5) {
+    return {
+      error: "ambiguous",
+      message: "Multiple matches for '" + query + "'",
+      options: sub.map(id => ({ id, label: labels[id], affordance: affordances[id] })),
+    };
+  }
+
+  // Reverse substring: label is contained in query
+  const rev = candidates.filter(id => q.includes(labels[id].toLowerCase()) && labels[id].length > 0);
+  if (rev.length === 1) return { id: rev[0], label: labels[rev[0]], match: "reverse" };
+
+  if (sub.length > 5) {
+    return { error: "too_many", message: sub.length + " matches for '" + query + "'. Be more specific." };
+  }
+
+  return { error: "not_found", message: "No element matching '" + query + "'." };
+})`;
 
 // Returns { x, y } click coordinates for an element, or null if not found.
 export const GET_RECT_JS = `((id) => {
