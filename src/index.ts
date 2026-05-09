@@ -310,11 +310,17 @@ server.tool(
         await cdpKey(client, confirm);
       }
 
-      // Readback: return what the element ACTUALLY contains
+      // Readback: check the target element first, but if it's empty and a
+      // different element has focus (swap-on-focus pattern), read that instead.
       const readback = await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
-        if (!el) return "";
-        return (el.value ?? el.textContent ?? "").substring(0, 200);
+        const targetVal = (el?.value ?? el?.textContent ?? "").substring(0, 200);
+        if (targetVal) return targetVal;
+        const active = document.activeElement;
+        if (active && active !== el && active !== document.body) {
+          return (active.value ?? active.textContent ?? "").substring(0, 200);
+        }
+        return targetVal;
       })()`) as string;
 
       return ok(`Typed into [${id}]. Value now: "${readback}"${confirm ? ` (confirmed with ${confirm})` : ""}`);
@@ -418,12 +424,14 @@ server.tool(
 
 server.tool(
   "read",
-  "Read the text content of the current page. Extracts main content area, article, or largest text block. Use for reading articles, results, or any non-interactive content.",
-  {},
-  async () => {
+  "Read the page content as structured markdown. Preserves headings, links, lists, bold, strikethrough (sale prices). Optionally pass a query to filter for relevant sections only.",
+  {
+    query: z.string().optional().describe("Filter content to sections matching this text (e.g. 'sale', 'price', 'boots')"),
+  },
+  async ({ query }) => {
     try {
       const client = await getClient(CDP_PORT);
-      const result = await evaluate(client, READ_JS) as { text: string };
+      const result = await evaluate(client, `${READ_JS}(${query ? JSON.stringify(query) : "null"})`) as { text: string };
       return ok(result.text);
     } catch (e) {
       return err(`Read failed: ${e instanceof Error ? e.message : e}`);

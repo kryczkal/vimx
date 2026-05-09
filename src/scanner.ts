@@ -491,18 +491,129 @@ export const SELECT_JS = `((id, value) => {
   return { ok: true, selected: option.textContent.trim(), actual: el.options[el.selectedIndex]?.textContent?.trim() };
 })`;
 
-export const READ_JS = `(() => {
-  const main = document.querySelector("main") || document.querySelector("article");
-  if (main) return { text: main.innerText.substring(0, 8000) };
+export const READ_JS = `((query) => {
+  const SKIP = new Set(["SCRIPT","STYLE","NOSCRIPT","SVG","PATH","META","LINK","BR"]);
+  const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
+  const MAX = 12000;
 
-  let best = document.body;
-  let bestLen = 0;
-  for (const el of document.querySelectorAll("div, section")) {
-    const len = el.innerText?.length || 0;
-    if (len > bestLen && len < 50000) {
-      bestLen = len;
-      best = el;
+  function isVisible(el) {
+    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return false;
+    const s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden";
+  }
+
+  function walk(node, out, depth) {
+    if (out.length > MAX) return;
+    if (node.nodeType === 3) {
+      const t = node.textContent.trim();
+      if (t) out.push(t);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (SKIP.has(tag)) return;
+    if (!isVisible(node)) return;
+
+    // Headings
+    const hMatch = tag.match(/^H([1-6])$/);
+    if (hMatch) {
+      const text = node.textContent.trim();
+      if (text) out.push("\\n" + "#".repeat(parseInt(hMatch[1])) + " " + text + "\\n");
+      return;
+    }
+
+    // Links
+    if (tag === "A") {
+      const text = node.textContent.trim();
+      const href = node.getAttribute("href") || "";
+      if (text && href && !href.startsWith("javascript:")) {
+        out.push("[" + text.substring(0, 80) + "](" + href.substring(0, 120) + ")");
+      } else if (text) {
+        out.push(text);
+      }
+      return;
+    }
+
+    // Images
+    if (tag === "IMG") {
+      const alt = node.alt || node.title;
+      if (alt) out.push("![" + alt.substring(0, 60) + "]");
+      return;
+    }
+
+    // List items
+    if (tag === "LI") {
+      out.push("\\n- ");
+    }
+
+    // Table rows — walk into cells, add newlines between rows
+    if (tag === "TR") {
+      out.push("\\n");
+    }
+
+    // Strong/bold
+    if (tag === "STRONG" || tag === "B") {
+      const text = node.textContent.trim();
+      if (text) out.push("**" + text + "**");
+      return;
+    }
+
+    // Emphasis
+    if (tag === "EM" || tag === "I") {
+      const text = node.textContent.trim();
+      if (text) out.push("*" + text + "*");
+      return;
+    }
+
+    // Strikethrough (useful for sale prices)
+    if (tag === "DEL" || tag === "S") {
+      const text = node.textContent.trim();
+      if (text) out.push("~~" + text + "~~");
+      return;
+    }
+
+    // Block elements get newlines
+    if (BLOCK.has(tag)) out.push("\\n");
+
+    for (const child of node.childNodes) {
+      walk(child, out, depth + 1);
+    }
+
+    if (BLOCK.has(tag)) out.push("\\n");
+  }
+
+  // Find root: main > article > largest section > body
+  let root = document.querySelector("main")
+    || document.querySelector("article")
+    || document.querySelector("[role=main]");
+  if (!root) {
+    root = document.body;
+  }
+
+  const parts = [];
+  walk(root, parts, 0);
+  let md = parts.join(" ")
+    .replace(/ +/g, " ")
+    .replace(/\\n +/g, "\\n")
+    .replace(/\\n{3,}/g, "\\n\\n")
+    .trim();
+
+  // If query provided, extract relevant sections
+  if (query) {
+    const q = query.toLowerCase();
+    const lines = md.split("\\n");
+    const matches = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(q)) {
+        const start = Math.max(0, i - 2);
+        const end = Math.min(lines.length, i + 5);
+        matches.push(lines.slice(start, end).join("\\n"));
+      }
+    }
+    if (matches.length > 0) {
+      md = "Found " + matches.length + " sections matching '" + query + "':\\n\\n" + matches.join("\\n---\\n");
     }
   }
-  return { text: best.innerText.substring(0, 8000) };
-})()`;
+
+  return { text: md.substring(0, MAX) };
+})`;
