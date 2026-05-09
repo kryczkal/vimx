@@ -306,7 +306,7 @@ server.tool(
       })()`);
 
       if (confirm) {
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 400));
         await cdpKey(client, confirm);
       }
 
