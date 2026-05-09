@@ -177,6 +177,12 @@ export const SCANNER_JS = `(() => {
     const cls = (el.getAttribute("class") || "").toLowerCase();
     if (cls.includes("button") || cls.includes("btn")) return true;
 
+    // cursor:pointer catches elements made clickable via JS addEventListener
+    // without any DOM attribute signal. Limitation: misses React event
+    // delegation (listeners on root, not individual elements) and elements
+    // where the developer forgot to set pointer cursor.
+    if (getComputedStyle(el).cursor === "pointer") return true;
+
     return false;
   }
 
