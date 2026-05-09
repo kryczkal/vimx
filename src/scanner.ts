@@ -119,9 +119,12 @@ export const SCANNER_JS = `(() => {
     return false;
   }
 
+  const SKIP_TAGS = new Set(["path","circle","rect","line","polyline","polygon","ellipse","g","use","defs","clippath","mask","pattern","image","text","tspan","symbol","marker","img","svg","br","hr","head","meta","link","script","style","noscript"]);
+
   function isClickable(el) {
     const tag = el.tagName.toLowerCase();
     if (!tag) return false;
+    if (SKIP_TAGS.has(tag)) return false;
 
     const ariaDisabled = el.getAttribute("aria-disabled");
     if (ariaDisabled && ["", "true"].includes(ariaDisabled.toLowerCase())) return false;
@@ -176,12 +179,6 @@ export const SCANNER_JS = `(() => {
 
     const cls = (el.getAttribute("class") || "").toLowerCase();
     if (cls.includes("button") || cls.includes("btn")) return true;
-
-    // cursor:pointer catches elements made clickable via JS addEventListener
-    // without any DOM attribute signal. Limitation: misses React event
-    // delegation (listeners on root, not individual elements) and elements
-    // where the developer forgot to set pointer cursor.
-    if (getComputedStyle(el).cursor === "pointer") return true;
 
     return false;
   }
@@ -339,7 +336,10 @@ export const SCANNER_JS = `(() => {
     } catch(e) {}
   }
 
-  // False positive filtering (Vimium's descendant check)
+  // Noise reduction: skip container elements that wrap clickable children.
+  // A div containing a button is not itself an action — the button is.
+  // Semantic elements (a, button, input, select, textarea) are never skipped.
+  const SEMANTIC = new Set(["a","button","input","select","textarea","summary","details","label"]);
   const filtered = [];
   const hintsByEl = new Map();
   for (const h of hints) hintsByEl.set(h.el, h);
@@ -348,20 +348,34 @@ export const SCANNER_JS = `(() => {
     const hint = hints[i];
     if (hint.iframeEditor) { filtered.push(hint); continue; }
     const tag = hint.el.tagName.toLowerCase();
-    const cls = (hint.el.getAttribute("class") || "").toLowerCase();
-    const isPossibleFP = tag === "span" || cls.includes("button") || cls.includes("btn");
+    const role = (hint.el.getAttribute("role") || "").toLowerCase();
 
-    if (isPossibleFP) {
-      let dominated = false;
-      const children = hint.el.querySelectorAll("*");
-      for (const child of children) {
-        if (hintsByEl.has(child) && child !== hint.el) {
-          dominated = true;
-          break;
-        }
-      }
-      if (dominated) continue;
+    // Semantic elements and elements with explicit roles always survive
+    if (SEMANTIC.has(tag) || role) {
+      filtered.push(hint);
+      continue;
     }
+
+    // Non-semantic elements (div, span, etc.): skip if they contain
+    // a clickable child — the child is the real action target.
+    // Exception: keep if it has cursor:pointer and NO clickable child —
+    // it might be a JS-only button (addEventListener without DOM signals).
+    let hasClickableChild = false;
+    for (const child of hint.el.querySelectorAll("*")) {
+      if (hintsByEl.has(child) && child !== hint.el) {
+        hasClickableChild = true;
+        break;
+      }
+    }
+    if (hasClickableChild) continue;
+
+    // Leaf non-semantic element with no clickable children: keep only if
+    // it has cursor:pointer (likely intentionally interactive) or has
+    // meaningful text content (likely a styled button/link).
+    const hasCursor = getComputedStyle(hint.el).cursor === "pointer";
+    const hasText = (hint.el.innerText || "").trim().length > 0;
+    if (!hasCursor && !hasText) continue;
+
     filtered.push(hint);
   }
   filtered.reverse();
