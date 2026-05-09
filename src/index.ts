@@ -82,38 +82,23 @@ async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
   return new Set(ids || []);
 }
 
-function allEntries(result: ScanResult) {
-  return [
+function formatDelta(before: Set<number>, result: ScanResult): string {
+  const full = formatScanResult(result);
+  const entries = [
     ...(result.groups.PRESS || []),
     ...(result.groups.TYPE || []),
     ...(result.groups.SELECT || []),
     ...(result.groups.TOGGLE || []),
   ];
-}
+  const newEntries = entries.filter(e => !before.has(e.id));
+  if (newEntries.length === 0) return full;
 
-function formatDelta(before: Set<number>, result: ScanResult): string {
-  const full = formatScanResult(result);
-  const entries = allEntries(result);
-  const afterIds = new Set(entries.map(e => e.id));
-
-  const added = [...afterIds].filter(id => !before.has(id));
-  const removed = [...before].filter(id => !afterIds.has(id));
-
-  if (added.length === 0 && removed.length === 0) return full;
-
-  const lines: string[] = [];
-  lines.push(`CHANGED: +${added.length} added, -${removed.length} removed\n`);
-
-  const newEntries = entries.filter(e => added.includes(e.id));
-  if (newEntries.length > 0 && newEntries.length <= 30) {
-    lines.push("NEW:");
-    for (const e of newEntries) {
-      const label = e.label ? ` "${(e.label as string).substring(0, 60)}"` : "";
-      lines.push(`  [${e.id}] ${e.tag}${label}`);
-    }
-    lines.push("");
+  const lines: string[] = ["NEW:"];
+  for (const e of newEntries) {
+    const label = e.label ? ` "${(e.label as string).substring(0, 60)}"` : "";
+    lines.push(`  [${e.id}] ${e.tag}${label}`);
   }
-
+  lines.push("");
   return lines.join("\n") + "\n" + full;
 }
 
