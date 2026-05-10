@@ -66,6 +66,33 @@ export const SCANNER_JS = `(() => {
     return null;
   }
 
+  // Check if element is inside an inner scroll container (not the page body).
+  // Returns the scroll container or null.
+  function getScrollParent(el) {
+    let node = el.parentElement;
+    while (node && node !== document.body && node !== document.documentElement) {
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      if ((overflowY === "auto" || overflowY === "scroll") &&
+          node.scrollHeight > node.clientHeight + 10) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // For elements inside scroll containers: return a rect even if off-viewport.
+  // We just need non-zero dimensions — the tools will scrollIntoView before clicking.
+  function getRect(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 3 || rect.height < 3) return null;
+    const cs = getComputedStyle(element);
+    if (cs.display === "none" || cs.visibility !== "visible") return null;
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+             width: rect.width, height: rect.height };
+  }
+
   // --- Element classification (from Vimium's DomUtils) ---
 
   const UNSELECTABLE_INPUT_TYPES = new Set([
@@ -298,9 +325,20 @@ export const SCANNER_JS = `(() => {
 
   for (const el of elements) {
     if (!isClickable(el)) continue;
+    // Viewport-visible elements: normal path
     const rect = getVisibleRect(el);
-    if (!rect) continue;
-    hints.push({ el, rect, id: stableId(el) });
+    if (rect) {
+      hints.push({ el, rect, id: stableId(el) });
+      continue;
+    }
+    // Off-screen but inside a scroll container: include with raw rect.
+    // The tools will scrollIntoView before clicking.
+    if (getScrollParent(el)) {
+      const rawRect = getRect(el);
+      if (rawRect) {
+        hints.push({ el, rect: rawRect, id: stableId(el), offscreen: true });
+      }
+    }
   }
 
   // Scan same-origin iframes for editable elements invisible to the main DOM.
@@ -380,10 +418,11 @@ export const SCANNER_JS = `(() => {
   }
   filtered.reverse();
 
-  // Overlap detection (Vimium's elementFromPoint check) — skip for iframe editors
+  // Overlap detection (Vimium's elementFromPoint check)
+  // Skip for iframe editors and offscreen elements (inside scroll containers)
   const results = [];
   for (const hint of filtered) {
-    if (hint.iframeEditor) { results.push(hint); continue; }
+    if (hint.iframeEditor || hint.offscreen) { results.push(hint); continue; }
     const r = hint.rect;
     const midX = r.left + r.width * 0.5;
     const midY = r.top + r.height * 0.5;

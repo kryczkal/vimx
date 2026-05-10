@@ -188,7 +188,20 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
 }
 
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number } | null> {
-  return await evaluate(client, `${GET_RECT_JS}(${id})`) as { x: number; y: number } | null;
+  // Scroll element into view if needed, then return fresh coordinates
+  return await evaluate(client, `(() => {
+    const el = window.__webpilot?.[${id}];
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return null;
+    // If outside viewport, scroll into view first
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) {
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      const r2 = el.getBoundingClientRect();
+      return { x: r2.left + r2.width / 2, y: r2.top + r2.height / 2 };
+    }
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  })()`) as { x: number; y: number } | null;
 }
 
 async function checkElement(client: CDP.Client, id: number): Promise<{ error?: string; tag?: string; ok?: boolean }> {
