@@ -2,10 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type CDP from "chrome-remote-interface";
-import { getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo, waitForNavigation, serialized, type FrameInfo } from "./cdp.js";
+import { getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo, waitForNavigation, serialized, launchDedicatedBrowser, type FrameInfo } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+const CDP_PORT = process.env.CDP_TARGET ? 0
+  : process.env.CDP_PORT ? parseInt(process.env.CDP_PORT, 10)
+  : await launchDedicatedBrowser();
 
 // ── Helpers ──
 
@@ -46,6 +48,34 @@ function formatGroup(entries: ScanEntry[], formatter: (e: ScanEntry) => string):
   return lines;
 }
 
+// Strip tracking params from URLs for display. Full URLs are preserved in
+// stored element refs — press() uses coordinates, not URLs. The model never
+// copies tracking URLs from scan output (verified across all session logs).
+//
+// Detection: value > 32 chars with no spaces (+ or %20). Search queries are
+// long but contain spaces. Tracking tokens are long random strings without.
+//
+// REVISIT IF: models start constructing URLs from scan hrefs instead of using
+// press(label) or building URLs from scratch. In that case, consider showing
+// full URLs behind a toggle or separate tool.
+function cleanHref(href: string): string {
+  const qIdx = href.indexOf("?");
+  if (qIdx === -1) return href;
+  const path = href.substring(0, qIdx);
+  const params = href.substring(qIdx + 1).split("&");
+  const kept = params.filter(p => {
+    const eq = p.indexOf("=");
+    if (eq === -1) return true;
+    const val = p.substring(eq + 1);
+    if (val.length <= 32) return true;
+    // Long value with spaces (search query) → keep
+    if (val.includes("+") || val.includes("%20")) return true;
+    return false;
+  });
+  if (kept.length === 0) return path;
+  return path + "?" + kept.join("&");
+}
+
 function formatScanResult(scan: ScanResult): string {
   const lines: string[] = [];
   lines.push(`Page: ${scan.title}`);
@@ -59,7 +89,7 @@ function formatScanResult(scan: ScanResult): string {
   if (scan.groups.PRESS?.length > 0) {
     lines.push("PRESS → press(id)");
     lines.push(...formatGroup(scan.groups.PRESS, e => {
-      const href = e.href ? ` → ${e.href}` : "";
+      const href = e.href ? ` → ${cleanHref(e.href)}` : "";
       return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
     }));
     lines.push("");
