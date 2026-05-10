@@ -578,6 +578,21 @@ export const RESOLVE_JS = `((query, affordanceFilter) => {
     return { error: "too_many", message: sub.length + " matches for '" + query + "'. Be more specific." };
   }
 
+  // No match in target affordance — check ALL affordances for a cross-affordance hint
+  if (affordanceFilter) {
+    const allExact = ids.filter(id => labels[id].toLowerCase() === q);
+    if (allExact.length > 0) {
+      const aff = affordances[allExact[0]];
+      const tool = aff === "TYPE" ? "type" : aff === "TOGGLE" ? "toggle" : aff === "SELECT" ? "select" : aff === "UPLOAD" ? "upload" : "press";
+      return { error: "wrong_tool", message: "'" + query + "' is a " + aff + " element. Use " + tool + "() instead." };
+    }
+    const allSub = ids.filter(id => labels[id].toLowerCase().includes(q));
+    if (allSub.length > 0 && allSub.length <= 3) {
+      const hints = allSub.map(id => affordances[id] + ': "' + labels[id].substring(0, 40) + '"');
+      return { error: "wrong_tool", message: "'" + query + "' not found in this tool. Found in: " + hints.join(", ") };
+    }
+  }
+
   return { error: "not_found", message: "No element matching '" + query + "'." };
 })`;
 
