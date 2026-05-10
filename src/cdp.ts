@@ -150,6 +150,72 @@ export async function evaluate(client: CDP.Client, expression: string): Promise<
   return result.result.value;
 }
 
+export interface FrameInfo {
+  frameId: string;
+  url: string;
+  name: string;
+  contextId?: number;
+  parentFrameId?: string;
+}
+
+interface FrameTreeNode {
+  frame: { id: string; url: string; name: string; parentId?: string };
+  childFrames?: FrameTreeNode[];
+}
+
+function flattenFrameTree(node: FrameTreeNode, out: FrameInfo[] = []): FrameInfo[] {
+  out.push({
+    frameId: node.frame.id,
+    url: node.frame.url,
+    name: node.frame.name,
+    parentFrameId: node.frame.parentId,
+  });
+  for (const child of node.childFrames || []) {
+    flattenFrameTree(child, out);
+  }
+  return out;
+}
+
+export async function getFrames(client: CDP.Client): Promise<FrameInfo[]> {
+  const { frameTree } = await client.Page.getFrameTree();
+  const frames = flattenFrameTree(frameTree as FrameTreeNode);
+
+  // Get execution contexts to map frames → contextIds
+  const { result: contexts } = await client.Runtime.evaluate({
+    expression: "1", returnByValue: true,
+  });
+
+  return frames;
+}
+
+export async function evaluateInFrame(
+  client: CDP.Client,
+  frameId: string,
+  expression: string,
+): Promise<unknown> {
+  // Create an isolated world in the frame to evaluate our expression
+  const { executionContextId } = await client.Page.createIsolatedWorld({
+    frameId,
+    worldName: "webpilot-scanner",
+    grantUniveralAccess: true,
+  });
+
+  const result = await client.Runtime.evaluate({
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+    contextId: executionContextId,
+  });
+
+  if (result.exceptionDetails) {
+    const msg = result.exceptionDetails.exception?.description ||
+                result.exceptionDetails.text ||
+                "Unknown JS error in frame";
+    throw new Error(msg);
+  }
+  return result.result.value;
+}
+
 export async function navigateTo(client: CDP.Client, url: string): Promise<void> {
   const { frameId } = await client.Page.navigate({ url });
   if (!frameId) throw new Error("Navigation failed — no frame returned.");

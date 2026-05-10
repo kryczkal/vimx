@@ -734,3 +734,106 @@ export const READ_JS = `((query) => {
 
   return { text: md.substring(0, MAX) };
 })`;
+
+// Lightweight scanner injected into each iframe via CDP frame targeting.
+// Returns elements with frame-relative coordinates — the caller offsets them.
+export const FRAME_SCANNER_JS = `(() => {
+  const SKIP_TAGS = new Set(["path","circle","rect","line","polyline","polygon","ellipse","g","use","defs","clippath","mask","pattern","image","text","tspan","symbol","marker","img","svg","br","hr","head","meta","link","script","style","noscript"]);
+  const UNSELECTABLE = new Set(["button","checkbox","color","file","hidden","image","radio","reset","submit"]);
+
+  function isTypeable(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "textarea") return !el.disabled && !el.readOnly;
+    if (tag === "input") {
+      if (el.disabled || el.readOnly) return false;
+      return !UNSELECTABLE.has((el.type || "text").toLowerCase());
+    }
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function isToggleable(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "input") return el.type === "checkbox" || el.type === "radio";
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    return ["checkbox","radio","switch"].includes(role);
+  }
+
+  function getAffordance(el) {
+    if (isTypeable(el)) return "TYPE";
+    if (el.tagName.toLowerCase() === "select" && !el.disabled) return "SELECT";
+    if (isToggleable(el)) return "TOGGLE";
+    return "PRESS";
+  }
+
+  function getLabel(el) {
+    const tag = el.tagName.toLowerCase();
+    if (tag === "input" && el.labels?.length > 0) {
+      let lt = el.labels[0].textContent.trim();
+      if (lt.endsWith(":")) lt = lt.slice(0, -1);
+      if (lt) return lt.substring(0, 80);
+    }
+    if (tag === "input" && el.type !== "password") {
+      return (el.value || el.placeholder || el.getAttribute("aria-label") || el.name || "").substring(0, 80);
+    }
+    const aria = el.getAttribute("aria-label");
+    if (aria) return aria.substring(0, 80);
+    const text = (el.innerText || "").trim().replace(/\\n+/g, " ").replace(/ +/g, " ");
+    if (text) return text.substring(0, 80);
+    return el.getAttribute("title") || el.getAttribute("placeholder") || el.id || "";
+  }
+
+  const results = [];
+  const els = document.querySelectorAll("a, button, input, select, textarea, [role=button], [role=link], [role=checkbox], [role=radio], [role=textbox], [contenteditable=true], [tabindex]");
+
+  for (const el of els) {
+    const tag = el.tagName.toLowerCase();
+    if (SKIP_TAGS.has(tag)) continue;
+    if (tag === "label") continue;
+    if (el.disabled) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 3 || rect.height < 3) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility !== "visible") continue;
+
+    const affordance = getAffordance(el);
+    const label = getLabel(el);
+    const entry = {
+      tag, label, affordance,
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      w: rect.width,
+      h: rect.height,
+    };
+
+    if (affordance === "TYPE") {
+      entry.value = el.value || "";
+      entry.inputType = (el.type || "text").toLowerCase();
+      if (el.placeholder) entry.placeholder = el.placeholder;
+    } else if (affordance === "SELECT") {
+      entry.value = el.value || "";
+      entry.options = Array.from(el.options || []).map(o => o.textContent?.trim() || o.value).slice(0, 30);
+    } else if (affordance === "TOGGLE") {
+      entry.checked = !!el.checked || el.getAttribute("aria-checked") === "true";
+    } else if (tag === "a" && el.href) {
+      try {
+        entry.href = new URL(el.href).pathname + new URL(el.href).search;
+      } catch(e) {
+        entry.href = el.getAttribute("href") || "";
+      }
+    }
+
+    results.push(entry);
+  }
+
+  // Also check for nested iframes (report their rects for recursive scanning)
+  const childIframes = [];
+  for (const iframe of document.querySelectorAll("iframe")) {
+    const r = iframe.getBoundingClientRect();
+    if (r.width > 10 && r.height > 10) {
+      childIframes.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    }
+  }
+
+  return { elements: results, childIframes };
+})()`;

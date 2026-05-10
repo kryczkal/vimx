@@ -2,8 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type CDP from "chrome-remote-interface";
-import { getClient, evaluate, listTabs, switchTab, navigateTo, waitForNavigation, serialized } from "./cdp.js";
-import { SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
+import { getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo, waitForNavigation, serialized, type FrameInfo } from "./cdp.js";
+import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
 
@@ -12,7 +12,8 @@ const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
 interface ScanEntry {
   id: number; tag: string; label: string; value?: string; inputType?: string;
   placeholder?: string; options?: string[]; checked?: boolean; href?: string;
-  scrollContainer?: boolean; scrollMore?: number;
+  scrollContainer?: boolean; scrollMore?: number; affordance?: string;
+  x?: number; y?: number; w?: number; h?: number;
 }
 
 interface ScanResult {
@@ -106,7 +107,142 @@ async function runScan(): Promise<ScanResult> {
     reset();
     setTimeout(done, 4000);
   })`);
-  return await evaluate(client, SCANNER_JS) as ScanResult;
+  const result = await evaluate(client, SCANNER_JS) as ScanResult;
+
+  // Scan child frames for additional interactive elements
+  try {
+    const frameElements = await scanFrames(client);
+    if (frameElements.length > 0) {
+      // Merge frame elements into main scan, storing them with stable IDs
+      // in the main page's __webpilot so press/type/toggle can find them
+      const mergeResult = await evaluate(client, `((frameEls) => {
+        if (!window.__wpIdMap) window.__wpIdMap = new WeakMap();
+        if (!window.__wpNextId) window.__wpNextId = 0;
+        const added = [];
+        for (const fe of frameEls) {
+          const id = window.__wpNextId++;
+          window.__webpilotRects[id] = { x: fe.x, y: fe.y };
+          window.__webpilotLabels[id] = fe.label;
+          window.__webpilotAffordances[id] = fe.affordance;
+          // No DOM element ref for cross-frame elements — mark as frame element
+          window.__webpilot[id] = { __frameElement: true, x: fe.x, y: fe.y };
+          added.push({ ...fe, id });
+        }
+        return added;
+      })(${JSON.stringify(frameElements)})`) as ScanEntry[];
+
+      for (const entry of mergeResult) {
+        const aff = entry.affordance || "PRESS";
+        const group = result.groups[aff];
+        if (group) group.push(entry);
+      }
+      result.total += mergeResult.length;
+    }
+  } catch {
+    // Frame scanning failed — continue with main frame results only
+  }
+
+  return result;
+}
+
+interface FrameElement {
+  tag: string;
+  label: string;
+  affordance: string;
+  x: number;
+  y: number;
+  value?: string;
+  inputType?: string;
+  placeholder?: string;
+  options?: string[];
+  checked?: boolean;
+  href?: string;
+}
+
+async function scanFrames(client: CDP.Client): Promise<FrameElement[]> {
+  // Get frame tree
+  let frameTree;
+  try {
+    const ft = await client.Page.getFrameTree();
+    frameTree = ft.frameTree;
+  } catch {
+    return [];
+  }
+
+  const mainFrameId = (frameTree as { frame: { id: string } }).frame.id;
+  const allFrames: { frameId: string; parentFrameId?: string }[] = [];
+
+  function collectFrames(node: { frame: { id: string; parentId?: string }; childFrames?: unknown[] }) {
+    if (node.frame.id !== mainFrameId) {
+      allFrames.push({ frameId: node.frame.id, parentFrameId: node.frame.parentId });
+    }
+    for (const child of (node.childFrames || []) as typeof node[]) {
+      collectFrames(child);
+    }
+  }
+  collectFrames(frameTree as Parameters<typeof collectFrames>[0]);
+
+  if (allFrames.length === 0) return [];
+
+  // Build frame offset chain: for each frame, compute its viewport offset
+  // by getting the iframe element's rect in the parent frame
+  const frameOffsets = new Map<string, { x: number; y: number }>();
+  frameOffsets.set(mainFrameId, { x: 0, y: 0 });
+
+  for (const frame of allFrames) {
+    try {
+      // Get the iframe element's rect in the parent frame
+      const parentId = frame.parentFrameId || mainFrameId;
+      const iframeRect = await evaluateInFrame(client, parentId, `(() => {
+        const iframes = document.querySelectorAll("iframe");
+        for (const iframe of iframes) {
+          // Match by checking if this iframe's contentWindow corresponds to our target frame
+          const r = iframe.getBoundingClientRect();
+          if (r.width > 10 && r.height > 10) {
+            return { x: r.left, y: r.top, w: r.width, h: r.height, src: iframe.src || "" };
+          }
+        }
+        return null;
+      })()`) as { x: number; y: number } | null;
+
+      // Simple approach: accumulate parent offset + iframe position
+      const parentOffset = frameOffsets.get(parentId) || { x: 0, y: 0 };
+      if (iframeRect) {
+        frameOffsets.set(frame.frameId, {
+          x: parentOffset.x + iframeRect.x,
+          y: parentOffset.y + iframeRect.y,
+        });
+      }
+    } catch {
+      // Frame not accessible
+    }
+  }
+
+  // Scan each frame
+  const allElements: FrameElement[] = [];
+  for (const frame of allFrames) {
+    const offset = frameOffsets.get(frame.frameId);
+    if (!offset) continue;
+
+    try {
+      const frameResult = await evaluateInFrame(client, frame.frameId, FRAME_SCANNER_JS) as {
+        elements: FrameElement[];
+        childIframes: { x: number; y: number }[];
+      };
+
+      for (const el of frameResult.elements) {
+        allElements.push({
+          ...el,
+          x: el.x + offset.x,
+          y: el.y + offset.y,
+        });
+      }
+    } catch {
+      // Frame scan failed — skip
+    }
+  }
+
+  return allElements;
 }
 
 async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
