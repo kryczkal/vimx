@@ -618,40 +618,30 @@ export const READ_JS = `((query) => {
   const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
   const MAX = 12000;
 
-  function hiddenReason(el) {
+  function visState(el) {
     const s = getComputedStyle(el);
-    if (s.display === "none") return "display";
-    if (s.visibility === "hidden") return "visibility";
-    if (parseFloat(s.opacity) === 0) return "opacity";
-    const r = el.getBoundingClientRect();
-    if (r.width <= 1 && r.height <= 1 && s.overflow !== "visible") return "size";
-    if (r.right < -100 || r.bottom < -100 || r.left > innerWidth + 100 || r.top > innerHeight + 100) return "offscreen";
-    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") {
-      if (r.width === 0 && r.height === 0) return "size";
-      return "offscreen";
-    }
-    return null;
+    if (s.display === "none" || s.visibility === "hidden") return "skip";
+    if (s.opacity === "0") return "hidden";
+    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return "skip";
+    return "visible";
   }
 
-  function walk(node, out, depth) {
+  function walk(node, out, depth, parentHidden) {
     if (out.length > MAX) return;
     if (node.nodeType === 3) {
       const t = node.textContent.trim();
-      if (t) out.push(t);
+      if (t) {
+        if (parentHidden) out.push("\\n[hidden] " + t);
+        else out.push(t);
+      }
       return;
     }
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (SKIP.has(tag)) return;
-
-    const reason = hiddenReason(node);
-    if (reason) {
-      const text = node.textContent?.trim();
-      if (text && text.length <= 200) {
-        out.push("[hidden:" + reason + "] " + text.replace(/\\s+/g, " ").substring(0, 200));
-      }
-      return;
-    }
+    const vis = visState(node);
+    if (vis === "skip") return;
+    const isHidden = parentHidden || vis === "hidden";
 
     // Headings
     const hMatch = tag.match(/^H([1-6])$/);
@@ -715,7 +705,7 @@ export const READ_JS = `((query) => {
     if (BLOCK.has(tag)) out.push("\\n");
 
     for (const child of node.childNodes) {
-      walk(child, out, depth + 1);
+      walk(child, out, depth + 1, isHidden);
     }
 
     if (BLOCK.has(tag)) out.push("\\n");
@@ -730,7 +720,7 @@ export const READ_JS = `((query) => {
   }
 
   const parts = [];
-  walk(root, parts, 0);
+  walk(root, parts, 0, false);
   let md = parts.join(" ")
     .replace(/ +/g, " ")
     .replace(/\\n +/g, "\\n")
