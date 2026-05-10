@@ -194,7 +194,7 @@ export const SCANNER_JS = `(() => {
       case "select": return !el.disabled;
       case "object":
       case "embed": return true;
-      case "label": return el.control != null && !el.control.disabled;
+      case "label": return false;
       case "details": return true;
       case "summary": return true;
       case "div":
@@ -419,21 +419,44 @@ export const SCANNER_JS = `(() => {
   }
   filtered.reverse();
 
-  // Overlap detection (Vimium's elementFromPoint check)
+  // Descend into shadow roots to find the deepest element at a point.
+  // document.elementFromPoint stops at shadow boundaries — this continues.
+  function deepElementFromPoint(x, y) {
+    let el = document.elementFromPoint(x, y);
+    while (el && el.shadowRoot) {
+      const deeper = el.shadowRoot.elementFromPoint(x, y);
+      if (!deeper || deeper === el) break;
+      el = deeper;
+    }
+    return el;
+  }
+
+  function elContains(a, b) {
+    if (a.contains(b)) return true;
+    // Check across shadow boundaries
+    let node = b;
+    while (node) {
+      if (node === a) return true;
+      node = node.parentNode || node.host;
+    }
+    return false;
+  }
+
+  // Overlap detection — uses shadow-aware elementFromPoint
   const results = [];
   for (const hint of filtered) {
     if (hint.iframeEditor) { results.push(hint); continue; }
     const r = hint.rect;
     const midX = r.left + r.width * 0.5;
     const midY = r.top + r.height * 0.5;
-    const found = document.elementFromPoint(midX, midY);
+    const found = deepElementFromPoint(midX, midY);
     if (!found) continue;
-    if (!(hint.el.contains(found) || found.contains(hint.el))) {
+    if (!(elContains(hint.el, found) || elContains(found, hint.el))) {
       let cornerHit = false;
       for (const y of [r.top + 0.1, r.top + r.height - 0.1]) {
         for (const x of [r.left + 0.1, r.left + r.width - 0.1]) {
-          const el2 = document.elementFromPoint(x, y);
-          if (el2 && (hint.el.contains(el2) || el2.contains(hint.el))) {
+          const el2 = deepElementFromPoint(x, y);
+          if (el2 && (elContains(hint.el, el2) || elContains(el2, hint.el))) {
             cornerHit = true;
             break;
           }
