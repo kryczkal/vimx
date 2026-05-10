@@ -66,15 +66,17 @@ export const SCANNER_JS = `(() => {
     return null;
   }
 
-  // Check if element is inside an inner scroll container (not the page body).
-  // Returns the scroll container or null.
+  // Check if element is inside a SMALL scroll container (dropdown, picker, panel).
+  // Skips large scroll areas (email lists, feeds) — those are main content, not
+  // bounded option lists. Threshold: container height < 50% of viewport.
   function getScrollParent(el) {
     let node = el.parentElement;
     while (node && node !== document.body && node !== document.documentElement) {
       const style = getComputedStyle(node);
       const overflowY = style.overflowY;
       if ((overflowY === "auto" || overflowY === "scroll") &&
-          node.scrollHeight > node.clientHeight + 10) {
+          node.scrollHeight > node.clientHeight + 10 &&
+          node.clientHeight < innerHeight * 0.5) {
         return node;
       }
       node = node.parentElement;
