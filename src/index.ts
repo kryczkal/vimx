@@ -9,11 +9,40 @@ const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
 
 // ── Helpers ──
 
+interface ScanEntry {
+  id: number; tag: string; label: string; value?: string; inputType?: string;
+  placeholder?: string; options?: string[]; checked?: boolean; href?: string;
+  scrollContainer?: boolean; scrollMore?: number;
+}
+
 interface ScanResult {
   url: string;
   title: string;
-  groups: Record<string, { id: number; tag: string; label: string; value?: string; inputType?: string; placeholder?: string; options?: string[]; checked?: boolean; href?: string }[]>;
+  groups: Record<string, ScanEntry[]>;
   total: number;
+  pageScrollable?: boolean;
+}
+
+function formatGroup(entries: ScanEntry[], formatter: (e: ScanEntry) => string): string[] {
+  const lines: string[] = [];
+  let lastScrollMore: number | null = null;
+  let lastScrollLabel: string | null = null;
+
+  for (const e of entries) {
+    lines.push(formatter(e));
+    if (e.scrollContainer && e.scrollMore) {
+      lastScrollMore = e.scrollMore;
+      lastScrollLabel = e.label;
+    } else if (lastScrollMore !== null && !e.scrollContainer) {
+      lines.splice(lines.length - 1, 0, `  ... ${lastScrollMore} more — scroll("${lastScrollLabel}") or expand("${lastScrollLabel}")`);
+      lastScrollMore = null;
+      lastScrollLabel = null;
+    }
+  }
+  if (lastScrollMore !== null) {
+    lines.push(`  ... ${lastScrollMore} more — scroll("${lastScrollLabel}") or expand("${lastScrollLabel}")`);
+  }
+  return lines;
 }
 
 function formatScanResult(scan: ScanResult): string {
@@ -21,42 +50,45 @@ function formatScanResult(scan: ScanResult): string {
   lines.push(`Page: ${scan.title}`);
   lines.push(`URL: ${scan.url}`);
   lines.push(`Elements: ${scan.total}`);
+  if (scan.pageScrollable) {
+    lines.push(`... more below — scroll() for next page`);
+  }
   lines.push("");
 
   if (scan.groups.PRESS?.length > 0) {
     lines.push("PRESS → press(id)");
-    for (const e of scan.groups.PRESS) {
+    lines.push(...formatGroup(scan.groups.PRESS, e => {
       const href = e.href ? ` → ${e.href}` : "";
-      lines.push(`  [${e.id}] ${e.tag} "${e.label}"${href}`);
-    }
+      return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
+    }));
     lines.push("");
   }
 
   if (scan.groups.TYPE?.length > 0) {
     lines.push("TYPE → type(id, text)");
-    for (const e of scan.groups.TYPE) {
+    lines.push(...formatGroup(scan.groups.TYPE, e => {
       const val = e.value ? ` value="${e.value}"` : "";
       const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
-      lines.push(`  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"`);
-    }
+      return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"`;
+    }));
     lines.push("");
   }
 
   if (scan.groups.SELECT?.length > 0) {
     lines.push("SELECT → select(id, value)");
-    for (const e of scan.groups.SELECT) {
+    lines.push(...formatGroup(scan.groups.SELECT, e => {
       const opts = e.options?.join(", ") || "";
-      lines.push(`  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`);
-    }
+      return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`;
+    }));
     lines.push("");
   }
 
   if (scan.groups.TOGGLE?.length > 0) {
     lines.push("TOGGLE → toggle(id)");
-    for (const e of scan.groups.TOGGLE) {
+    lines.push(...formatGroup(scan.groups.TOGGLE, e => {
       const state = e.checked ? "✓" : "○";
-      lines.push(`  [${e.id}] ${e.tag} "${e.label}" ${state}`);
-    }
+      return `  [${e.id}] ${e.tag} "${e.label}" ${state}`;
+    }));
     lines.push("");
   }
 
@@ -510,6 +542,97 @@ server.tool(
       return ok(`Navigated to ${url}.\n\n${text}`);
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
+);
+
+server.tool(
+  "scroll",
+  "Scroll down the page or a specific scrollable container. Use when scan shows '... more below' or '... N more' on a list. Re-scans after scrolling.",
+  {
+    target: z.string().optional().describe("Label of an element inside the scrollable container. If omitted, scrolls the page."),
+  },
+  async ({ target }) => serialized(async () => {
+    try {
+      const client = await getClient(CDP_PORT);
+      if (target) {
+        await evaluate(client, `(() => {
+          const labels = window.__webpilotLabels || {};
+          const q = ${JSON.stringify(target)}.toLowerCase();
+          for (const id of Object.keys(labels)) {
+            if (labels[id].toLowerCase().includes(q)) {
+              const el = window.__webpilot[id];
+              if (!el) continue;
+              let node = el.parentElement;
+              while (node && node !== document.body) {
+                const s = getComputedStyle(node);
+                if ((s.overflowY === "auto" || s.overflowY === "scroll") && node.scrollHeight > node.clientHeight + 10) {
+                  node.scrollBy({ top: node.clientHeight * 0.8, behavior: "instant" });
+                  return;
+                }
+                node = node.parentElement;
+              }
+            }
+          }
+        })()`);
+      } else {
+        await evaluate(client, `window.scrollBy({ top: window.innerHeight * 0.8, behavior: "instant" })`);
+      }
+      await new Promise(r => setTimeout(r, 300));
+      const text = formatScanResult(await runScan());
+      return ok(`Scrolled${target ? ` "${target}"` : ""} down.\n\n${text}`);
+    } catch (e) {
+      return err(`Scroll failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
+);
+
+server.tool(
+  "expand",
+  "Show ALL items in a scrollable list (time picker, dropdown, etc.). Use when scan shows '... N more' on a bounded list. Returns all items from that container.",
+  {
+    target: z.string().describe("Label of an element inside the scrollable container to expand"),
+  },
+  async ({ target }) => serialized(async () => {
+    try {
+      const client = await getClient(CDP_PORT);
+      const items = await evaluate(client, `(() => {
+        const labels = window.__webpilotLabels || {};
+        const q = ${JSON.stringify(target)}.toLowerCase();
+        // Find the element matching the label
+        for (const id of Object.keys(labels)) {
+          if (!labels[id].toLowerCase().includes(q)) continue;
+          const el = window.__webpilot[id];
+          if (!el) continue;
+          // Walk up to find the scroll container
+          let node = el.parentElement;
+          while (node && node !== document.body) {
+            const s = getComputedStyle(node);
+            if ((s.overflowY === "auto" || s.overflowY === "scroll") && node.scrollHeight > node.clientHeight + 10) {
+              // Found the scroll container — get ALL clickable children
+              const items = [];
+              for (const child of node.querySelectorAll("*")) {
+                const r = child.getBoundingClientRect();
+                if (r.width < 3 || r.height < 3) continue;
+                const text = (child.innerText || "").trim().replace(/\\n+/g, " ");
+                if (!text || text.length > 80) continue;
+                if (child.children.length > 2) continue;
+                items.push(text);
+              }
+              // Deduplicate
+              return [...new Set(items)];
+            }
+            node = node.parentElement;
+          }
+        }
+        return null;
+      })()`) as string[] | null;
+
+      if (!items) return err(`No scrollable container found near "${target}".`);
+      const text = items.map((item, i) => `  ${item}`).join("\n");
+      return ok(`Expanded list near "${target}" (${items.length} items):\n${text}`);
+    } catch (e) {
+      return err(`Expand failed: ${e instanceof Error ? e.message : e}`);
     }
   }),
 );

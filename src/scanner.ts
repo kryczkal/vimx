@@ -325,21 +325,20 @@ export const SCANNER_JS = `(() => {
   window.__webpilotLabels = {};
   window.__webpilotAffordances = {};
 
+  // Track scroll containers and their off-screen item counts for annotations
+  const scrollContainerCounts = new Map();
+
   for (const el of elements) {
     if (!isClickable(el)) continue;
-    // Viewport-visible elements: normal path
     const rect = getVisibleRect(el);
     if (rect) {
       hints.push({ el, rect, id: stableId(el) });
       continue;
     }
-    // Off-screen but inside a scroll container: include with raw rect.
-    // The tools will scrollIntoView before clicking.
-    if (getScrollParent(el)) {
-      const rawRect = getRect(el);
-      if (rawRect) {
-        hints.push({ el, rect: rawRect, id: stableId(el), offscreen: true });
-      }
+    // Off-screen: count for annotation but don't add to scan
+    const scrollParent = getScrollParent(el);
+    if (scrollParent) {
+      scrollContainerCounts.set(scrollParent, (scrollContainerCounts.get(scrollParent) || 0) + 1);
     }
   }
 
@@ -421,10 +420,9 @@ export const SCANNER_JS = `(() => {
   filtered.reverse();
 
   // Overlap detection (Vimium's elementFromPoint check)
-  // Skip for iframe editors and offscreen elements (inside scroll containers)
   const results = [];
   for (const hint of filtered) {
-    if (hint.iframeEditor || hint.offscreen) { results.push(hint); continue; }
+    if (hint.iframeEditor) { results.push(hint); continue; }
     const r = hint.rect;
     const midX = r.left + r.width * 0.5;
     const midY = r.top + r.height * 0.5;
@@ -494,15 +492,25 @@ export const SCANNER_JS = `(() => {
     };
     window.__webpilotLabels[id] = label;
     window.__webpilotAffordances[id] = affordance;
+
+    // Tag elements inside scroll containers for annotation grouping
+    const sp = getScrollParent(el);
+    if (sp && scrollContainerCounts.has(sp)) {
+      entry.scrollContainer = true;
+      entry.scrollMore = scrollContainerCounts.get(sp);
+    }
+
     groups[affordance].push(entry);
   }
 
   const total = Object.keys(window.__webpilotRects).length;
+  const pageScrollable = document.documentElement.scrollHeight > innerHeight + 50;
   return {
     url: location.href,
     title: document.title,
     groups,
     total,
+    pageScrollable,
   };
 })()`;
 

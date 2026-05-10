@@ -4,6 +4,10 @@ import { execSync, spawn } from "child_process";
 let activeClient: CDP.Client | null = null;
 let activeTabId: string | null = null;
 
+// Direct websocket URL for remote CDP targets (e.g. BrowserUseCloud).
+// When set, skips local Chrome discovery and connects directly.
+const CDP_TARGET = process.env.CDP_TARGET;
+
 const RETRY_DELAYS = [200, 500, 1000, 2000];
 
 async function sleep(ms: number) {
@@ -50,6 +54,8 @@ async function waitForCDP(port: number): Promise<void> {
 }
 
 export async function ensureBrowser(port: number): Promise<void> {
+  if (CDP_TARGET) return;
+
   try {
     await CDP.List({ port });
     return;
@@ -64,6 +70,13 @@ export async function ensureBrowser(port: number): Promise<void> {
 }
 
 async function connectToTab(port: number): Promise<CDP.Client> {
+  if (CDP_TARGET) {
+    const client = await CDP({ target: CDP_TARGET });
+    await client.Runtime.enable();
+    await client.Page.enable();
+    return client;
+  }
+
   const targets = await CDP.List({ port });
   const page = targets.find(t => t.type === "page" && !t.url.startsWith("devtools://") && !t.url.startsWith("chrome://"))
     ?? targets.find(t => t.type === "page" && !t.url.startsWith("devtools://"));
@@ -103,6 +116,8 @@ export async function getClient(port: number): Promise<CDP.Client> {
 }
 
 export async function listTabs(port: number): Promise<{ id: string; title: string; url: string }[]> {
+  if (CDP_TARGET) return [];
+
   await ensureBrowser(port);
   const targets = await CDP.List({ port });
   return targets
