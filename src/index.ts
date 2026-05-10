@@ -93,6 +93,14 @@ function formatScanResult(scan: ScanResult): string {
     lines.push("");
   }
 
+  if (scan.groups.UPLOAD?.length > 0) {
+    lines.push("UPLOAD → upload(element, filepath)");
+    lines.push(...formatGroup(scan.groups.UPLOAD, e => {
+      return `  [${e.id}] input[file] "${e.label}"`;
+    }));
+    lines.push("");
+  }
+
   return lines.join("\n");
 }
 
@@ -607,6 +615,79 @@ server.tool(
       return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}`);
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
+);
+
+server.tool(
+  "upload",
+  "Upload a file to a file input element. Only works on elements listed under UPLOAD in scan results. Accepts element id (number) or label text (string).",
+  {
+    element: elementRef.describe("Element ID or label text"),
+    filepath: z.string().describe("Absolute path to the file to upload"),
+  },
+  async ({ element, filepath }) => serialized(async () => {
+    try {
+      const client = await getClient(CDP_PORT);
+      const resolved = await resolveElement(client, element, "UPLOAD");
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
+
+      // Get the DOM node ID for CDP DOM.setFileInputFiles
+      const nodeInfo = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el) return null;
+        return { tagName: el.tagName, type: el.type };
+      })()`) as { tagName: string; type: string } | null;
+
+      if (!nodeInfo) return err("Element not found. Run scan first.");
+
+      // Use DOM.querySelector to get the backend node ID
+      const { root } = await client.DOM.getDocument();
+      const { nodeId } = await client.DOM.querySelector({
+        nodeId: root.nodeId,
+        selector: `input[type="file"]`,
+      });
+
+      if (!nodeId) return err("Could not locate file input in DOM.");
+
+      // If there are multiple file inputs, find the right one by matching
+      // against our stored element
+      const allFileInputs = await evaluate(client, `(() => {
+        const inputs = document.querySelectorAll('input[type="file"]');
+        const target = window.__webpilot?.[${id}];
+        for (let i = 0; i < inputs.length; i++) {
+          if (inputs[i] === target) return i;
+        }
+        return 0;
+      })()`) as number;
+
+      // Get the right node ID
+      const { nodeIds } = await client.DOM.querySelectorAll({
+        nodeId: root.nodeId,
+        selector: `input[type="file"]`,
+      });
+
+      const targetNodeId = nodeIds[allFileInputs] || nodeId;
+
+      await client.DOM.setFileInputFiles({
+        files: [filepath],
+        nodeId: targetNodeId,
+      });
+
+      // Verify by reading back the file name
+      const filename = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el || !el.files || el.files.length === 0) return "";
+        return el.files[0].name;
+      })()`) as string;
+
+      if (filename) {
+        return ok(`Uploaded "${filename}" to [${id}].`);
+      }
+      return ok(`Upload command sent to [${id}]. File: ${filepath.split("/").pop()}`);
+    } catch (e) {
+      return err(`Upload failed: ${e instanceof Error ? e.message : e}`);
     }
   }),
 );

@@ -129,8 +129,13 @@ export const SCANNER_JS = `(() => {
            role === "menuitemcheckbox" || role === "menuitemradio";
   }
 
+  function isUploadable(el) {
+    return el.tagName.toLowerCase() === "input" && (el.type || "").toLowerCase() === "file";
+  }
+
   function getAffordance(el) {
     if (isTypeable(el)) return "TYPE";
+    if (isUploadable(el)) return "UPLOAD";
     if (isSelectable(el)) return "SELECT";
     if (isToggleable(el)) return "TOGGLE";
     return "PRESS";
@@ -469,7 +474,7 @@ export const SCANNER_JS = `(() => {
   }
 
   // Build output grouped by affordance
-  const groups = { PRESS: [], TYPE: [], SELECT: [], TOGGLE: [] };
+  const groups = { PRESS: [], TYPE: [], SELECT: [], TOGGLE: [], UPLOAD: [] };
   for (const hint of results) {
     const el = hint.el;
     const r = hint.rect;
@@ -613,10 +618,19 @@ export const READ_JS = `((query) => {
   const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
   const MAX = 12000;
 
-  function isVisible(el) {
-    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return false;
+  function hiddenReason(el) {
     const s = getComputedStyle(el);
-    return s.display !== "none" && s.visibility !== "hidden";
+    if (s.display === "none") return "display";
+    if (s.visibility === "hidden") return "visibility";
+    if (parseFloat(s.opacity) === 0) return "opacity";
+    const r = el.getBoundingClientRect();
+    if (r.width <= 1 && r.height <= 1 && s.overflow !== "visible") return "size";
+    if (r.right < -100 || r.bottom < -100 || r.left > innerWidth + 100 || r.top > innerHeight + 100) return "offscreen";
+    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") {
+      if (r.width === 0 && r.height === 0) return "size";
+      return "offscreen";
+    }
+    return null;
   }
 
   function walk(node, out, depth) {
@@ -629,7 +643,15 @@ export const READ_JS = `((query) => {
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (SKIP.has(tag)) return;
-    if (!isVisible(node)) return;
+
+    const reason = hiddenReason(node);
+    if (reason) {
+      const text = node.textContent?.trim();
+      if (text && text.length <= 200) {
+        out.push("[hidden:" + reason + "] " + text.replace(/\\s+/g, " ").substring(0, 200));
+      }
+      return;
+    }
 
     // Headings
     const hMatch = tag.match(/^H([1-6])$/);
@@ -761,6 +783,7 @@ export const FRAME_SCANNER_JS = `(() => {
 
   function getAffordance(el) {
     if (isTypeable(el)) return "TYPE";
+    if (el.tagName.toLowerCase() === "input" && (el.type || "").toLowerCase() === "file") return "UPLOAD";
     if (el.tagName.toLowerCase() === "select" && !el.disabled) return "SELECT";
     if (isToggleable(el)) return "TOGGLE";
     return "PRESS";
