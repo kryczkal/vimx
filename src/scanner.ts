@@ -871,7 +871,7 @@ export const HIGHLIGHT_JS = `((id) => {
 //
 // Multi-root preserved (catches portal-rendered modals like LinkedIn compose).
 // Chrome-strip and root-selection edge cases are separate follow-ups.
-export const READ_JS = `((query) => {
+export const READ_JS = `(() => {
   const roots = [];
   const main = document.querySelector("main, article, [role=main]");
   if (main) {
@@ -906,22 +906,6 @@ export const READ_JS = `((query) => {
     md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
   } finally {
     stripStyle.remove();
-  }
-
-  if (query) {
-    const q = query.toLowerCase();
-    const lines = md.split("\\n");
-    const matches = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes(q)) {
-        const start = Math.max(0, i - 2);
-        const end = Math.min(lines.length, i + 5);
-        matches.push(lines.slice(start, end).join("\\n"));
-      }
-    }
-    if (matches.length > 0) {
-      md = "Found " + matches.length + " sections matching '" + query + "':\\n\\n" + matches.join("\\n---\\n");
-    }
   }
 
   return { text: md };

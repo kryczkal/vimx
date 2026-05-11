@@ -339,7 +339,7 @@ async function readFrames(client: CDP.Client, perFrameTimeoutMs = 200): Promise<
   for (const f of allFrames) {
     try {
       const text = await Promise.race([
-        evaluateInFrame(client, f.id, `${READ_JS}(null).text`) as Promise<string>,
+        evaluateInFrame(client, f.id, `${READ_JS}().text`) as Promise<string>,
         new Promise<null>(resolve => setTimeout(() => resolve(null), perFrameTimeoutMs)),
       ]);
       if (typeof text === "string" && text.trim().length >= 50) {
@@ -1021,18 +1021,17 @@ server.tool(
 
 server.tool(
   "read",
-  "Read the page content as structured markdown. Preserves headings, links, lists, bold, strikethrough (sale prices). Optionally pass a query to filter for relevant sections only.",
+  "Read the page content as plain text. Optionally pass a JS regex (case-insensitive) to keep only matching lines plus -2/+5 lines of context per hit. Examples: 'pip install', '\\\\$\\\\d+\\\\.\\\\d{2}', '^#+ '.",
   {
-    query: z.string().optional().describe("Filter content to sections matching this text (e.g. 'sale', 'price', 'boots')"),
+    regex: z.string().optional().describe("JS regex pattern, case-insensitive. Per-line match with -2/+5 context window per hit; overlapping windows merged. 0 matches returns 'No matches' — model should broaden or drop the regex, not assume the page is empty."),
     browser: browserRef,
   },
-  async ({ query, browser }) => {
+  async ({ regex, browser }) => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
-      // READ_JS returns un-capped text (handler caps after merge + query).
-      const main = (await evaluate(client, `${READ_JS}(null).text`)) as string;
+      const main = (await evaluate(client, `${READ_JS}().text`)) as string;
       const frames = await readFrames(client);
 
       let merged = main;
@@ -1040,39 +1039,48 @@ server.tool(
         merged += `\n\n--- iframe: ${f.url} ---\n${f.text}`;
       }
 
-      // Apply query filter to the FULL merged text BEFORE capping — otherwise
-      // a query like "Cornell" on a long Wikipedia article can't find matches
-      // deep in the body, because the cap fires first and the query sees only
-      // the lead section.
-      if (query) {
-        const q = query.toLowerCase();
-        const lines = merged.split("\n");
-        const matches: string[] = [];
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].toLowerCase().includes(q)) {
-            const start = Math.max(0, i - 2);
-            const end = Math.min(lines.length, i + 5);
-            matches.push(lines.slice(start, end).join("\n"));
-          }
-        }
-        if (matches.length > 0) {
-          merged = `Found ${matches.length} sections matching '${query}':\n\n${matches.join("\n---\n")}`;
-        }
-      }
-
-      // 200k cap is "effectively infinite for normal pages" — Wikipedia/Python
-      // docs (the longest in the 70-site benchmark, at ~180k uncapped) fit
-      // entirely. Marker tells the model when it fired so they know to use
-      // query or accept the partial.
       const MAX = 200_000;
-      let output = merged;
-      if (output.length > MAX) {
-        const total = output.length;
-        output = output.substring(0, MAX) +
-          `\n\n[... truncated at ${MAX} of ${total} chars — use read({query:"term"}) to find specific content]`;
+
+      if (!regex) {
+        if (merged.length > MAX) {
+          return ok(merged.substring(0, MAX) +
+            `\n\n[... truncated at ${MAX} of ${merged.length} chars — use read({regex:"..."}) to find specific content]`);
+        }
+        return ok(merged);
       }
 
-      return ok(output);
+      let re: RegExp;
+      try {
+        re = new RegExp(regex, "i");
+      } catch (e) {
+        return err(`Invalid regex /${regex}/: ${e instanceof Error ? e.message : e}`);
+      }
+
+      const lines = merged.split("\n");
+      const hits: number[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i])) hits.push(i);
+      }
+      if (hits.length === 0) return ok(`No matches for /${regex}/i`);
+
+      // Merge overlapping/adjacent windows in a single forward pass. -2/+5 is
+      // asymmetric because the answer usually follows the matched line
+      // (heading → paragraph, label → value, "^# Install" → command).
+      const windows: [number, number][] = [];
+      for (const h of hits) {
+        const start = Math.max(0, h - 2);
+        const end = Math.min(lines.length, h + 5);
+        const last = windows[windows.length - 1];
+        if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+        else windows.push([start, end]);
+      }
+      const body = windows.map(([s, e]) => lines.slice(s, e).join("\n")).join("\n---\n");
+      const out = `${hits.length} matches for /${regex}/i:\n\n${body}`;
+      if (out.length > MAX) {
+        return ok(out.substring(0, MAX) +
+          `\n\n[... truncated at ${MAX} of ${out.length} chars — tighten the regex]`);
+      }
+      return ok(out);
     } catch (e) {
       return err(`Read failed: ${e instanceof Error ? e.message : e}`);
     }
