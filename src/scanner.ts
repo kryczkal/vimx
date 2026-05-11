@@ -533,6 +533,13 @@ export const SCANNER_JS = `(() => {
 
   // Disambiguate duplicate labels pointing to different destinations.
   // Chain: ancestor text → href segment diff → position index.
+  //
+  // NOTE: Flat output is intentional — Playwright MCP returns a full a11y tree (~4500 tokens/turn),
+  // we return a flat list (~750 tokens) with deltas (~200 tokens). ~18x fewer tokens over a session.
+  // The tradeoff is lost co-location context (which button belongs to which dialog/form).
+  // This disambiguator handles collisions; if it proves insufficient, consider annotating every
+  // element with its nearest semantic ancestor: `[5] button "Delete" (dialog)` — adds context
+  // without going hierarchical.
   for (const entries of Object.values(groups)) {
     const byLabel = {};
     for (const e of entries) {
