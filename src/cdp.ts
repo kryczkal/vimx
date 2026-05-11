@@ -4,6 +4,48 @@ import { execSync, spawn } from "child_process";
 let activeClient: CDP.Client | null = null;
 let activeTabId: string | null = null;
 
+// ── Dialog handling ──
+// JS dialogs (alert/confirm/prompt/beforeunload) block all Runtime.evaluate
+// calls, bricking the session. We listen for them on the CDP event channel
+// (which keeps working) and either auto-dismiss (alert) or hold for the agent.
+
+interface DialogInfo { type: string; message: string; defaultPrompt?: string }
+let pendingDialog: DialogInfo | null = null;
+let lastAlert: { message: string } | null = null;
+let dialogResolvers: Array<() => void> = [];
+
+export function getPendingDialog(): DialogInfo | null { return pendingDialog; }
+
+export function consumeLastAlert(): { message: string } | null {
+  const a = lastAlert;
+  lastAlert = null;
+  return a;
+}
+
+export function onDialog(): Promise<void> {
+  return new Promise(r => { dialogResolvers.push(r); });
+}
+
+export async function handlePendingDialog(client: CDP.Client, accept: boolean, text?: string): Promise<void> {
+  if (!pendingDialog) throw new Error("No dialog is currently open.");
+  await client.Page.handleJavaScriptDialog({ accept, promptText: text });
+  pendingDialog = null;
+  await sleep(300);
+}
+
+function setupDialogHandler(client: CDP.Client): void {
+  (client as any).on("Page.javascriptDialogOpening", (params: { type: string; message: string; defaultPrompt?: string }) => {
+    if (params.type === "alert") {
+      lastAlert = { message: params.message };
+      client.Page.handleJavaScriptDialog({ accept: true }).catch(() => {});
+    } else {
+      pendingDialog = { type: params.type, message: params.message, defaultPrompt: params.defaultPrompt };
+      for (const r of dialogResolvers) r();
+      dialogResolvers = [];
+    }
+  });
+}
+
 // Direct websocket URL for remote CDP targets (e.g. BrowserUseCloud).
 // When set, skips local Chrome discovery and connects directly.
 const CDP_TARGET = process.env.CDP_TARGET;
@@ -74,6 +116,7 @@ async function connectToTab(port: number): Promise<CDP.Client> {
     const client = await CDP({ target: CDP_TARGET });
     await client.Runtime.enable();
     await client.Page.enable();
+    setupDialogHandler(client);
     return client;
   }
 
@@ -85,11 +128,13 @@ async function connectToTab(port: number): Promise<CDP.Client> {
   activeTabId = page.id;
   await client.Runtime.enable();
   await client.Page.enable();
+  setupDialogHandler(client);
   return client;
 }
 
 export async function getClient(port: number): Promise<CDP.Client> {
   if (activeClient) {
+    if (pendingDialog) return activeClient;
     try {
       await activeClient.Runtime.evaluate({ expression: "1" });
       return activeClient;
@@ -133,6 +178,7 @@ export async function switchTab(port: number, tabId: string): Promise<void> {
   activeTabId = tabId;
   await activeClient.Runtime.enable();
   await activeClient.Page.enable();
+  setupDialogHandler(activeClient);
 }
 
 export async function evaluate(client: CDP.Client, expression: string): Promise<unknown> {

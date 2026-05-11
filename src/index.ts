@@ -4,7 +4,8 @@ import { z } from "zod";
 import type CDP from "chrome-remote-interface";
 import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
-  waitForNavigation, serialized, type FrameInfo,
+  waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
+  handlePendingDialog, onDialog, type FrameInfo,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
@@ -331,12 +332,40 @@ function err(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true };
 }
 
+function dialogBlock(): ReturnType<typeof err> | null {
+  const d = getPendingDialog();
+  if (!d) return null;
+  const hint = d.type === "prompt"
+    ? "Respond with dialog(accept, text) or dialog(dismiss)."
+    : "Respond with dialog(accept) or dialog(dismiss).";
+  return err(`A dialog is open — handle it before doing anything else.\n  ${d.type}: "${d.message}"\n${hint}`);
+}
+
+function dialogReturn(prefix: string): ReturnType<typeof ok> | null {
+  const d = getPendingDialog();
+  if (!d) return null;
+  const hint = d.type === "prompt"
+    ? "Respond with dialog(accept, text) or dialog(dismiss)."
+    : "Respond with dialog(accept) or dialog(dismiss).";
+  return ok(`${prefix} Dialog appeared:\n  ${d.type}: "${d.message}"\n${hint}`);
+}
+
+function alertSuffix(): string {
+  const a = consumeLastAlert();
+  return a ? `\nAlert: "${a.message}"` : "";
+}
+
 // ── CDP input primitives ──
 // Every interaction goes through these. No DOM manipulation for interaction.
 
 async function cdpClick(client: CDP.Client, x: number, y: number) {
   await client.Input.dispatchMouseEvent({ type: "mousePressed", x, y, button: "left", clickCount: 1 });
-  await client.Input.dispatchMouseEvent({ type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  // mouseReleased hangs if a dialog opened during mousePressed (renderer paused).
+  // Race it against the dialog event so we don't block forever.
+  await Promise.race([
+    client.Input.dispatchMouseEvent({ type: "mouseReleased", x, y, button: "left", clickCount: 1 }),
+    onDialog(),
+  ]);
 }
 
 async function cdpType(client: CDP.Client, text: string) {
@@ -374,7 +403,14 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
   const mapped = KEY_MAP[keyName.toLowerCase()];
   if (!mapped) throw new Error(`Unknown key: ${keyName}. Available: ${Object.keys(KEY_MAP).join(", ")}`);
   await client.Input.dispatchKeyEvent({ type: "keyDown", ...mapped, modifiers });
-  await client.Input.dispatchKeyEvent({ type: "keyUp", ...mapped, modifiers });
+  // keyUp can hang if keyDown triggered a dialog (renderer paused)
+  await Promise.race([
+    client.Input.dispatchKeyEvent({ type: "keyUp", ...mapped, modifiers }),
+    onDialog(),
+  ]);
+
+  await new Promise(r => setTimeout(r, 50));
+  if (getPendingDialog()) return;
 
   // CDP dispatchKeyEvent fires DOM events but doesn't trigger the browser's
   // default actions (form submit, button activate). Apply them via JS.
@@ -486,6 +522,8 @@ server.tool(
   "Scan the current page for all interactive elements, grouped by affordance (PRESS, TYPE, SELECT, TOGGLE). Returns element IDs you can use with press/type/select/toggle tools. Call this first before interacting with any page.",
   { browser: browserRef },
   async ({ browser }) => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       return ok(formatScanResult(await runScan()));
     } catch (e) {
@@ -499,6 +537,8 @@ server.tool(
   "Press a button, click a link, or activate a pressable element. Accepts element id (number) or label text (string).",
   { element: elementRef.describe("Element ID or label text"), browser: browserRef },
   async ({ element, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "PRESS");
@@ -513,6 +553,10 @@ server.tool(
       await cdpClick(client, rect.x, rect.y);
 
       await new Promise(r => setTimeout(r, 300));
+
+      const dr = dialogReturn(`Pressed [${id}].`);
+      if (dr) return dr;
+
       let navigated = false;
       try {
         const urlAfter = await evaluate(client, "location.href") as string;
@@ -526,9 +570,9 @@ server.tool(
       try {
         const result = await runScan();
         const text = formatDelta(before, result);
-        return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}\n\n${text}`);
+        return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}${alertSuffix()}\n\n${text}`);
       } catch {
-        return ok(`Pressed [${id}]. Page is loading — call scan when ready.`);
+        return ok(`Pressed [${id}]. Page is loading — call scan when ready.${alertSuffix()}`);
       }
     } catch (e) {
       return err(`Press failed: ${e instanceof Error ? e.message : e}`);
@@ -547,6 +591,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ element, text, clear, confirm, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TYPE");
@@ -556,10 +602,6 @@ server.tool(
       const rect = await getRect(client, id);
       if (!rect) return err("Element coordinates not found. Run scan first.");
 
-      // Focus via JS — more reliable than CDP click for establishing focus.
-      // CDP dispatchMouseEvent doesn't always trigger focus on some pages.
-      // Click the element via CDP (for side effects like opening dropdowns),
-      // then ensure focus via JS as the authoritative step.
       await cdpClick(client, rect.x, rect.y);
       await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
@@ -575,7 +617,6 @@ server.tool(
 
       await cdpType(client, text);
 
-      // Widget inputs (time, date, color, range) ignore insertText
       await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         if (!el || el.tagName !== "INPUT") return;
@@ -591,10 +632,10 @@ server.tool(
       if (confirm) {
         await new Promise(r => setTimeout(r, 400));
         await cdpKey(client, confirm);
+        const dr = dialogReturn(`Typed into [${id}] (confirmed with ${confirm}).`);
+        if (dr) return dr;
       }
 
-      // Readback: check the target element first, but if it's empty and a
-      // different element has focus (swap-on-focus pattern), read that instead.
       const readback = await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         const targetVal = (el?.value ?? el?.textContent ?? "").substring(0, 200);
@@ -606,7 +647,7 @@ server.tool(
         return targetVal;
       })()`) as string;
 
-      return ok(`Typed into [${id}]. Value now: "${readback}"${confirm ? ` (confirmed with ${confirm})` : ""}`);
+      return ok(`Typed into [${id}]. Value now: "${readback}"${confirm ? ` (confirmed with ${confirm})` : ""}${alertSuffix()}`);
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -622,6 +663,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ element, value, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "SELECT");
@@ -643,6 +686,8 @@ server.tool(
   "Toggle a checkbox, radio button, or switch. Accepts element id (number) or label text (string).",
   { element: elementRef.describe("Element ID or label text"), browser: browserRef },
   async ({ element, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TOGGLE");
@@ -654,14 +699,17 @@ server.tool(
 
       await cdpClick(client, rect.x, rect.y);
 
-      // Read back state
+      await new Promise(r => setTimeout(r, 50));
+      const dr = dialogReturn(`Toggled [${id}].`);
+      if (dr) return dr;
+
       const state = await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         if (!el) return { checked: false };
         return { checked: el.checked ?? el.getAttribute("aria-checked") === "true" };
       })()`) as { checked: boolean };
 
-      return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}`);
+      return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}${alertSuffix()}`);
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -677,6 +725,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ element, filepath, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "UPLOAD");
@@ -753,17 +803,23 @@ server.tool(
     browser: browserRef,
   },
   async ({ key, ctrl, shift, alt, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       let modifiers = 0;
       if (alt) modifiers |= 1;
       if (ctrl) modifiers |= 2;
       if (shift) modifiers |= 8;
+      const keyName = [alt && "Alt", ctrl && "Ctrl", shift && "Shift", key].filter(Boolean).join("+");
+
       await cdpKey(client, key, modifiers);
+
+      const dr = dialogReturn(`Pressed ${keyName}.`);
+      if (dr) return dr;
 
       await new Promise(r => setTimeout(r, 100));
 
-      // Return focused element context so the model knows where it landed
       const focus = await evaluate(client, `(() => {
         const el = document.activeElement;
         if (!el || el === document.body) return "Focus: none";
@@ -773,8 +829,7 @@ server.tool(
         return "Focus: " + tag + (label ? ' "' + label + '"' : "") + (val ? ' value="' + val + '"' : "");
       })()`) as string;
 
-      const keyName = [alt && "Alt", ctrl && "Ctrl", shift && "Shift", key].filter(Boolean).join("+");
-      return ok(`Pressed ${keyName}. ${focus}`);
+      return ok(`Pressed ${keyName}. ${focus}${alertSuffix()}`);
     } catch (e) {
       return err(`Key failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -789,6 +844,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ query, browser }) => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const result = await evaluate(client, `${READ_JS}(${query ? JSON.stringify(query) : "null"})`) as { text: string };
@@ -804,11 +861,13 @@ server.tool(
   "Navigate to a URL. Automatically scans the new page after loading.",
   { url: z.string().describe("URL to navigate to"), browser: browserRef },
   async ({ url, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       await navigateTo(client, url);
       const text = formatScanResult(await runScan());
-      return ok(`Navigated to ${url}.\n\n${text}`);
+      return ok(`Navigated to ${url}.${alertSuffix()}\n\n${text}`);
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -823,6 +882,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ target, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       if (target) {
@@ -865,6 +926,8 @@ server.tool(
     browser: browserRef,
   },
   async ({ target, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
       const items = await evaluate(client, `(() => {
@@ -938,6 +1001,34 @@ server.tool(
       return err(`Switch failed: ${e instanceof Error ? e.message : e}`);
     }
   },
+);
+
+server.tool(
+  "dialog",
+  "Respond to a browser dialog (confirm, prompt, or beforeunload). Only usable when a dialog is open — other tools will tell you when one appears.",
+  {
+    accept: z.boolean().describe("true to accept (OK/confirm/yes), false to dismiss (Cancel/no)"),
+    text: z.string().optional().describe("Text to enter for prompt dialogs before accepting"),
+  },
+  async ({ accept, text }) => serialized(async () => {
+    try {
+      const d = getPendingDialog();
+      if (!d) return err("No dialog is currently open.");
+      const client = await getClient(CDP_PORT);
+      await handlePendingDialog(client, accept, text);
+      const alert = alertSuffix();
+      try {
+        const result = await runScan();
+        const action = accept ? "accepted" : "dismissed";
+        return ok(`Dialog ${action}.${alert}\n\n${formatScanResult(result)}`);
+      } catch {
+        const action = accept ? "accepted" : "dismissed";
+        return ok(`Dialog ${action}. Page is loading — call scan when ready.${alert}`);
+      }
+    } catch (e) {
+      return err(`Dialog failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
 );
 
 // TODO: new_browser / close_browser session management (requires cdp.ts session support)
