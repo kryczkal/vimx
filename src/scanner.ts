@@ -890,7 +890,25 @@ export const READ_JS = `((query) => {
     roots.push(document.body);
   }
 
-  let md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
+  // Chrome strip: hide <nav>/<footer>/<aside> + ARIA equivalents via injected
+  // style, capture innerText, remove the style. Done in the live DOM (cloned
+  // elements don't render, so cloneNode + innerText returns textContent-ish
+  // garbage — measured on Wikipedia/JavaScript clone returned 0 chars).
+  //
+  // <header> intentionally NOT stripped: Wikipedia and many news sites put the
+  // article title inside <header>, so the aggressive variant lost titles in
+  // the 25-site probe. nav/footer/aside is the conservative slice that wins
+  // on Wikipedia (article tab strip + language list gone) without regressing
+  // anywhere.
+  const stripStyle = document.createElement("style");
+  stripStyle.textContent = 'nav, footer, aside, [role="navigation"], [role="contentinfo"], [role="complementary"] { display: none !important; }';
+  document.head.appendChild(stripStyle);
+  let md;
+  try {
+    md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
+  } finally {
+    stripStyle.remove();
+  }
 
   if (query) {
     const q = query.toLowerCase();
