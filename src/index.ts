@@ -6,6 +6,7 @@ import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
   handlePendingDialog, onDialog, startObserving, waitForSettle,
+  waitForLoadingIndicators,
   type FrameInfo,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
@@ -188,6 +189,13 @@ async function runScan(browser?: string): Promise<ScanResult> {
   const client = await getClient(CDP_PORT);
   await startObserving(client);
   await waitForSettle(client);
+  // If the page is still streaming content (skeleton/aria-busy visible),
+  // wait for those indicators to clear, then re-settle to catch the
+  // post-XHR render burst. No-op (~1ms) on stable pages.
+  if (await waitForLoadingIndicators(client)) {
+    await startObserving(client);
+    await waitForSettle(client);
+  }
   return scanPage(client);
 }
 

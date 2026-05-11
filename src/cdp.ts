@@ -316,3 +316,42 @@ export async function waitForSettle(client: CDP.Client): Promise<void> {
     check();
   })`);
 }
+
+// On SPA route changes, the DOM goes quiet between "skeleton rendered" and
+// "XHR results arrive". waitForSettle catches that quiet pause and returns
+// too early; scan sees nav chrome only and the model concludes the page is
+// broken (LinkedIn search session, May 11 2026).
+//
+// We wait for visible loading indicators to disappear before scanning.
+// Selectors chosen by measurement (test-loading-detect.mts): aria-busy=true
+// and class*=skeleton fired during loading on a synthetic gold-standard
+// page AND YouTube search, cleared after content arrived, zero hits on
+// Wikipedia/MDN/HN/GitHub controls. spinner/loader/loading/placeholder
+// patterns were too noisy (permanent spinners, false matches).
+//
+// Returns true if it actually waited. Caller should re-settle after.
+export async function waitForLoadingIndicators(client: CDP.Client, maxMs = 2500): Promise<boolean> {
+  return await evaluate(client, `new Promise(resolve => {
+    const SEL = '[aria-busy="true"], [class*="skeleton" i]';
+    function hasVisible() {
+      for (const el of document.querySelectorAll(SEL)) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        const cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') continue;
+        return true;
+      }
+      return false;
+    }
+    if (!hasVisible()) { resolve(false); return; }
+    const start = Date.now();
+    const observer = new MutationObserver(() => {
+      if (!hasVisible()) { observer.disconnect(); resolve(true); }
+    });
+    observer.observe(document.body, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ['aria-busy', 'class'],
+    });
+    setTimeout(() => { observer.disconnect(); resolve(true); }, ${maxMs});
+  })`) as boolean;
+}
