@@ -522,15 +522,15 @@ interface ResolveResult {
   options?: { id: number; label: string; affordance: string }[];
 }
 
-async function resolveElement(
+async function tryResolveOnce(
   client: CDP.Client,
   idOrLabel: number | string,
   affordanceFilter?: string,
-): Promise<{ id: number } | { error: string }> {
+): Promise<{ id: number; label?: string } | { error: string; stale?: boolean }> {
   if (typeof idOrLabel === "number") {
     const check = await checkElement(client, idOrLabel);
     if (check.error === "not_found") return { error: "Element not found. Run scan first." };
-    if (check.error === "stale") return { error: "Element is stale. Run scan again." };
+    if (check.error === "stale") return { error: "Element is stale. Run scan again.", stale: true };
     return { id: idOrLabel };
   }
 
@@ -546,8 +546,46 @@ async function resolveElement(
   if (result.error) return { error: result.message! };
 
   const check = await checkElement(client, result.id!);
-  if (check.error) return { error: `Matched "${result.label}" but element is stale. Run scan again.` };
-  return { id: result.id! };
+  if (check.error) return { error: `Matched "${result.label}" but element is stale. Run scan again.`, stale: true };
+  return { id: result.id!, label: result.label };
+}
+
+// Heavily re-rendering pages (LinkedIn messaging is the canonical case)
+// unmount target elements between scan and action, so single-shot resolve
+// returns "stale" every time even with rescans the model performs manually
+// — the model's think time is enough for another remount cycle. We
+// transparently retry once: capture the target's label, re-run the scanner
+// (no settle — we want minimal window), re-resolve. Bounded to one retry to
+// avoid loops on permanently-removed elements.
+//
+// Synthetic 200ms churn test: 0/5 → 5/5 success. Zero spurious retries
+// across 20 real sites (test-stale-recovery.mts, May 11 2026).
+async function resolveElement(
+  client: CDP.Client,
+  idOrLabel: number | string,
+  affordanceFilter?: string,
+): Promise<{ id: number } | { error: string }> {
+  const first = await tryResolveOnce(client, idOrLabel, affordanceFilter);
+  if ("id" in first) return { id: first.id };
+  if (!first.stale) return { error: first.error };
+
+  // Recover a label to retry by. For string input, use it directly. For
+  // numeric input, look it up in the now-stale labels map before we rescan.
+  let retryLabel: string | null = typeof idOrLabel === "string" ? idOrLabel : null;
+  if (retryLabel === null) {
+    const cached = await evaluate(client, `window.__webpilotLabels?.[${idOrLabel}] ?? null`) as string | null;
+    if (typeof cached === "string" && cached.length > 0) retryLabel = cached;
+  }
+  if (retryLabel === null) return { error: first.error };
+
+  // Fast rescan — no settle, no loading-indicator wait. Speed matters
+  // because the page is mutating; a slower scan widens the window for
+  // another remount before we act.
+  await evaluate(client, SCANNER_JS);
+
+  const retry = await tryResolveOnce(client, retryLabel, affordanceFilter);
+  if ("id" in retry) return { id: retry.id };
+  return { error: `${first.error} (retried after re-scan: ${retry.error})` };
 }
 
 // Schema for tools that accept id or label
