@@ -578,7 +578,13 @@ export const SCANNER_JS = `(() => {
     for (const [label, dupes] of Object.entries(byLabel)) {
       if (dupes.length < 2) continue;
       const hrefs = new Set(dupes.map(d => d.href || ""));
-      if (hrefs.size <= 1) continue; // same destination = true dupe, handled by formatter
+      // Skip disambig only when all elements share the SAME NON-EMPTY href —
+      // that means same destination, true visual duplicate handled by the
+      // formatter dedup. Elements with no href (typically <button>s) need
+      // disambiguation: they may share a label but do completely different
+      // things (LinkedIn messaging: preview tile vs header tile, both
+      // labelled "Piotr Tyrakowski 2:00 AM …", different actions).
+      if (hrefs.size === 1 && !hrefs.has("")) continue;
 
       // Strategy 1: repeating sibling boundary + unique text extraction.
       // Walk up from each element to find a "list item" boundary (ancestor
