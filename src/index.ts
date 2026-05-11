@@ -104,7 +104,7 @@ function formatScanResult(scan: ScanResult): string {
   lines.push("");
 
   if (scan.groups.PRESS?.length > 0) {
-    lines.push("PRESS → press(id)");
+    lines.push("PRESS → press(element)");
     lines.push(...formatGroup(scan.groups.PRESS, e => {
       const href = e.href ? ` → ${cleanHref(e.href)}` : "";
       return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
@@ -113,7 +113,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.TYPE?.length > 0) {
-    lines.push("TYPE → type(id, text)");
+    lines.push("TYPE → type(element, text)");
     lines.push(...formatGroup(scan.groups.TYPE, e => {
       const val = e.value ? ` value="${e.value}"` : "";
       const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
@@ -123,7 +123,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.SELECT?.length > 0) {
-    lines.push("SELECT → select(id, value)");
+    lines.push("SELECT → select(element, value)");
     lines.push(...formatGroup(scan.groups.SELECT, e => {
       const opts = e.options?.join(", ") || "";
       return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`;
@@ -132,7 +132,7 @@ function formatScanResult(scan: ScanResult): string {
   }
 
   if (scan.groups.TOGGLE?.length > 0) {
-    lines.push("TOGGLE → toggle(id)");
+    lines.push("TOGGLE → toggle(element)");
     lines.push(...formatGroup(scan.groups.TOGGLE, e => {
       const state = e.checked ? "✓" : "○";
       return `  [${e.id}] ${e.tag} "${e.label}" ${state}`;
