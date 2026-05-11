@@ -5,24 +5,10 @@ import type CDP from "chrome-remote-interface";
 import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, type FrameInfo,
-  createBrowserSession, destroyBrowserSession, getSessionClient,
-  sessionSerialized, listSessionTabs, switchSessionTab,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
-
-// ── Session routing ──
-
-async function getEffectiveClient(browser?: string): Promise<CDP.Client> {
-  if (browser) return getSessionClient(browser);
-  return getClient(CDP_PORT);
-}
-
-function effectiveSerialized<T>(browser: string | undefined, fn: () => Promise<T>): Promise<T> {
-  if (browser) return sessionSerialized(browser, fn);
-  return serialized(fn);
-}
 
 // ── Helpers ──
 
@@ -155,7 +141,7 @@ function formatScanResult(scan: ScanResult): string {
 }
 
 async function runScan(browser?: string): Promise<ScanResult> {
-  const client = await getEffectiveClient(browser);
+  const client = await getClient(CDP_PORT);
   await evaluate(client, `new Promise(resolve => {
     let timer;
     const done = () => { if (obs) obs.disconnect(); resolve(); };
@@ -492,7 +478,7 @@ server.tool(
   { browser: browserRef },
   async ({ browser }) => {
     try {
-      return ok(formatScanResult(await runScan(browser)));
+      return ok(formatScanResult(await runScan()));
     } catch (e) {
       return err(`Scan failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -503,9 +489,9 @@ server.tool(
   "press",
   "Press a button, click a link, or activate a pressable element. Accepts element id (number) or label text (string).",
   { element: elementRef.describe("Element ID or label text"), browser: browserRef },
-  async ({ element, browser }) => effectiveSerialized(browser, async () => {
+  async ({ element, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "PRESS");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
@@ -529,7 +515,7 @@ server.tool(
       }
 
       try {
-        const result = await runScan(browser);
+        const result = await runScan();
         const text = formatDelta(before, result);
         return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}\n\n${text}`);
       } catch {
@@ -551,9 +537,9 @@ server.tool(
     confirm: z.string().optional().describe("Key to press after typing to confirm (enter, tab, escape). Use for autocomplete fields."),
     browser: browserRef,
   },
-  async ({ element, text, clear, confirm, browser }) => effectiveSerialized(browser, async () => {
+  async ({ element, text, clear, confirm, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TYPE");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
@@ -626,9 +612,9 @@ server.tool(
     value: z.string().describe("Option text or value to select"),
     browser: browserRef,
   },
-  async ({ element, value, browser }) => effectiveSerialized(browser, async () => {
+  async ({ element, value, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "SELECT");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
@@ -647,9 +633,9 @@ server.tool(
   "toggle",
   "Toggle a checkbox, radio button, or switch. Accepts element id (number) or label text (string).",
   { element: elementRef.describe("Element ID or label text"), browser: browserRef },
-  async ({ element, browser }) => effectiveSerialized(browser, async () => {
+  async ({ element, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TOGGLE");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
@@ -681,9 +667,9 @@ server.tool(
     filepath: z.string().describe("Absolute path to the file to upload"),
     browser: browserRef,
   },
-  async ({ element, filepath, browser }) => effectiveSerialized(browser, async () => {
+  async ({ element, filepath, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "UPLOAD");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
@@ -757,9 +743,9 @@ server.tool(
     alt: z.boolean().optional().default(false).describe("Hold Alt"),
     browser: browserRef,
   },
-  async ({ key, ctrl, shift, alt, browser }) => effectiveSerialized(browser, async () => {
+  async ({ key, ctrl, shift, alt, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       let modifiers = 0;
       if (alt) modifiers |= 1;
       if (ctrl) modifiers |= 2;
@@ -795,7 +781,7 @@ server.tool(
   },
   async ({ query, browser }) => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const result = await evaluate(client, `${READ_JS}(${query ? JSON.stringify(query) : "null"})`) as { text: string };
       return ok(result.text);
     } catch (e) {
@@ -808,11 +794,11 @@ server.tool(
   "navigate",
   "Navigate to a URL. Automatically scans the new page after loading.",
   { url: z.string().describe("URL to navigate to"), browser: browserRef },
-  async ({ url, browser }) => effectiveSerialized(browser, async () => {
+  async ({ url, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       await navigateTo(client, url);
-      const text = formatScanResult(await runScan(browser));
+      const text = formatScanResult(await runScan());
       return ok(`Navigated to ${url}.\n\n${text}`);
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
@@ -827,9 +813,9 @@ server.tool(
     target: z.string().optional().describe("Label of an element inside the scrollable container. If omitted, scrolls the page."),
     browser: browserRef,
   },
-  async ({ target, browser }) => effectiveSerialized(browser, async () => {
+  async ({ target, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       if (target) {
         await evaluate(client, `(() => {
           const labels = window.__webpilotLabels || {};
@@ -854,7 +840,7 @@ server.tool(
         await evaluate(client, `window.scrollBy({ top: window.innerHeight * 0.8, behavior: "instant" })`);
       }
       await new Promise(r => setTimeout(r, 300));
-      const text = formatScanResult(await runScan(browser));
+      const text = formatScanResult(await runScan());
       return ok(`Scrolled${target ? ` "${target}"` : ""} down.\n\n${text}`);
     } catch (e) {
       return err(`Scroll failed: ${e instanceof Error ? e.message : e}`);
@@ -869,9 +855,9 @@ server.tool(
     target: z.string().describe("Label of an element inside the scrollable container to expand"),
     browser: browserRef,
   },
-  async ({ target, browser }) => effectiveSerialized(browser, async () => {
+  async ({ target, browser }) => serialized(async () => {
     try {
-      const client = await getEffectiveClient(browser);
+      const client = await getClient(CDP_PORT);
       const items = await evaluate(client, `(() => {
         const labels = window.__webpilotLabels || {};
         const q = ${JSON.stringify(target)}.toLowerCase();
@@ -919,7 +905,7 @@ server.tool(
   { browser: browserRef },
   async ({ browser }) => {
     try {
-      const tabs = browser ? await listSessionTabs(browser) : await listTabs(CDP_PORT);
+      const tabs = await listTabs(CDP_PORT);
       const text = tabs
         .map((t, i) => `[${i}] ${t.title}\n    ${t.url}\n    id: ${t.id}`)
         .join("\n\n");
@@ -936,9 +922,8 @@ server.tool(
   { tab_id: z.string().describe("Tab ID from the tabs tool output"), browser: browserRef },
   async ({ tab_id, browser }) => {
     try {
-      if (browser) await switchSessionTab(browser, tab_id);
-      else await switchTab(CDP_PORT, tab_id);
-      const text = formatScanResult(await runScan(browser));
+      await switchTab(CDP_PORT, tab_id);
+      const text = formatScanResult(await runScan());
       return ok(`Switched tab.\n\n${text}`);
     } catch (e) {
       return err(`Switch failed: ${e instanceof Error ? e.message : e}`);
@@ -946,33 +931,7 @@ server.tool(
   },
 );
 
-server.tool(
-  "new_browser",
-  "Launch a new isolated browser instance. Returns a session ID to pass as `browser` to all other tools. Use this for concurrent browser work — each session gets its own Chrome.",
-  {},
-  async () => {
-    try {
-      const id = await createBrowserSession();
-      return ok(`Browser session started: ${id}\nPass browser="${id}" to all subsequent tool calls.`);
-    } catch (e) {
-      return err(`Failed to launch browser: ${e instanceof Error ? e.message : e}`);
-    }
-  },
-);
-
-server.tool(
-  "close_browser",
-  "Close a browser session and kill its Chrome instance. Frees resources when done with a concurrent browser task.",
-  { browser: z.string().describe("Browser session ID to close") },
-  async ({ browser }) => {
-    try {
-      await destroyBrowserSession(browser);
-      return ok(`Browser session ${browser} closed.`);
-    } catch (e) {
-      return err(`Failed to close browser: ${e instanceof Error ? e.message : e}`);
-    }
-  },
-);
+// TODO: new_browser / close_browser session management (requires cdp.ts session support)
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
