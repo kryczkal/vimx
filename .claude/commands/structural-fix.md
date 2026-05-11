@@ -14,14 +14,14 @@ You've identified a problem. Before writing any code, go through this process.
    - What it risks (regressions, edge cases)
    - When it fails
 
-4. **Test the hypothesis BEFORE implementing.** Run the detection/heuristic on 5+ real sites via CDP. Show the data. Don't guess — measure.
+4. **Test the hypothesis BEFORE implementing.** Run the detection/heuristic on 20+ real sites via CDP. Show the data. Don't guess — measure.
    - "I think ancestor text will disambiguate" → test it on HN, Amazon, Google, GitHub, Reddit
    - "I think opacity:0 elements are always hidden junk" → check Amazon (prices are opacity:0)
    - "I think containers >50% viewport are feeds" → check Gmail (sidebar is 30% but also a feed)
 
 5. **Pick the approach** based on data, not intuition. The approach with fewest false positives wins, even if it catches fewer true positives. Precision over recall — wrong actions are worse than missed actions.
 
-6. **Implement the simplest version.** No premature optimization. Ship, test on real sites, iterate.
+6. **Ship, test on real sites, iterate**
 
 ## Philosophy
 
