@@ -360,6 +360,10 @@ async function cdpClick(client: CDP.Client, x: number, y: number) {
   ]);
 }
 
+async function cdpHover(client: CDP.Client, x: number, y: number) {
+  await client.Input.dispatchMouseEvent({ type: "mouseMoved", x, y });
+}
+
 async function cdpType(client: CDP.Client, text: string) {
   await client.Input.insertText({ text });
 }
@@ -744,6 +748,41 @@ server.tool(
       return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}${alertSuffix()}`);
     } catch (e) {
       return err(`Toggle failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }),
+);
+
+server.tool(
+  "hover",
+  "Move the mouse over an element to reveal hover-only UI (dropdown menus, row action buttons, tooltips). Re-scans after hovering so newly-revealed elements appear in the result. Accepts element id (number) or label text (string).",
+  { element: elementRef.describe("Element ID or label text"), browser: browserRef },
+  async ({ element, browser }) => serialized(async () => {
+    const blocked = dialogBlock();
+    if (blocked) return blocked;
+    try {
+      const client = await getClient(CDP_PORT);
+      const resolved = await resolveElement(client, element);
+      if ("error" in resolved) return err(resolved.error);
+      const id = resolved.id;
+
+      const rect = await getRect(client, id);
+      if (!rect) return err("Element not found. Run scan first.");
+      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
+
+      const before = await snapshotIds(client);
+      await startObserving(client);
+      await cdpHover(client, rect.x, rect.y);
+      await waitForSettle(client);
+
+      const dr = dialogReturn(`Hovered [${id}].`);
+      if (dr) return dr;
+
+      const result = await scanPage(client);
+      const text = formatDelta(before, result);
+      const hadNew = text.startsWith("NEW:");
+      return ok(`Hovered [${id}].${hadNew ? "" : " No new elements appeared."}${alertSuffix()}\n\n${text}`);
+    } catch (e) {
+      return err(`Hover failed: ${e instanceof Error ? e.message : e}`);
     }
   }),
 );
