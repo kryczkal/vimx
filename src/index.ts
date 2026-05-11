@@ -448,10 +448,25 @@ async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: 
     const x = r2.left + r2.width / 2;
     const y = r2.top + r2.height / 2;
 
-    const top = document.elementFromPoint(x, y);
-    if (!top || top === el || el.contains(top)) return { x, y };
+    // Shadow-aware elementFromPoint (web components return their host otherwise)
+    let top = document.elementFromPoint(x, y);
+    while (top && top.shadowRoot) {
+      const deeper = top.shadowRoot.elementFromPoint(x, y);
+      if (!deeper || deeper === top) break;
+      top = deeper;
+    }
+    if (!top) return { x, y };
 
-    // Obscured — describe what's blocking
+    // Shadow-piercing containment in both directions:
+    //   top inside el → click on a child, bubbles up to el
+    //   el inside top → el is decoration with pe:none, or top is shadow host
+    function deepContains(a, b) {
+      let n = b;
+      while (n) { if (n === a) return true; n = n.parentNode || n.host; }
+      return false;
+    }
+    if (top === el || deepContains(el, top) || deepContains(top, el)) return { x, y };
+
     const tag = top.tagName.toLowerCase();
     const role = top.getAttribute("role");
     const text = (top.getAttribute("aria-label") || top.innerText || "").substring(0, 40).trim().replace(/\\n+/g, " ");
