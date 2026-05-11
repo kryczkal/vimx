@@ -435,6 +435,18 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
   }
 }
 
+// Pre-action hit test: returns coords + an "obscured" descriptor if the
+// element at (x, y) isn't our target or part of its tree.
+//
+// Shadow DOM: we descend top-down (shadowRoot.elementFromPoint until no
+// deeper) then check containment piercing shadow boundaries. Playwright does
+// the inverse — walks UP from target to enumerate its shadow chain, then
+// verifies elementFromPoint at each root steps to the next host
+// (microsoft/playwright packages/injected/src/injectedScript.ts:expectHitTarget).
+// Their approach catches per-level obscuration and handles display:contents
+// quirks; ours matches their result on the common case for ~10× less code.
+// If we hit hard-to-diagnose cases, swap elementFromPoint for elementsFromPoint
+// (plural) to expose the full vertical stack at the click point.
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number; obscured?: string } | null> {
   return await evaluate(client, `(() => {
     const el = window.__webpilot?.[${id}];
