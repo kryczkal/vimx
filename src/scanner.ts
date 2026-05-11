@@ -872,8 +872,6 @@ export const HIGHLIGHT_JS = `((id) => {
 // Multi-root preserved (catches portal-rendered modals like LinkedIn compose).
 // Chrome-strip and root-selection edge cases are separate follow-ups.
 export const READ_JS = `((query) => {
-  const MAX = 12000;
-
   const roots = [];
   const main = document.querySelector("main, article, [role=main]");
   if (main) {
@@ -926,7 +924,7 @@ export const READ_JS = `((query) => {
     }
   }
 
-  return { text: md.substring(0, MAX) };
+  return { text: md };
 })`;
 
 // Lightweight scanner injected into each iframe via CDP frame targeting.

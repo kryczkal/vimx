@@ -305,6 +305,53 @@ async function scanFrames(client: CDP.Client): Promise<FrameElement[]> {
   return allElements;
 }
 
+// read() in the main document misses iframe content — embedded widgets,
+// social embeds, and deeply nested portals (the May 10 iframe-inception
+// session aborted on this). Walks every non-main frame via CDP isolated
+// worlds, drops frames below threshold (50 chars after trim), and merges
+// with section markers. Per-frame timeout bounds worst-case overhead.
+//
+// 70-site survey (May 11): 33% of sites have iframes but only 5.8% have
+// substantive frames; rest are ad slots that lazy-load or use postMessage
+// and contribute 0 chars to a DOM walk anyway. Avg 21ms overhead per page,
+// zero regressions, 0.7% net token increase across the set.
+interface FrameRead { url: string; text: string }
+async function readFrames(client: CDP.Client, perFrameTimeoutMs = 200): Promise<FrameRead[]> {
+  let frameTree;
+  try {
+    const ft = await client.Page.getFrameTree();
+    frameTree = ft.frameTree;
+  } catch {
+    return [];
+  }
+  const mainFrameId = (frameTree as { frame: { id: string } }).frame.id;
+  const allFrames: { id: string; url: string }[] = [];
+  function collect(node: { frame: { id: string; url: string }; childFrames?: unknown[] }) {
+    if (node.frame.id !== mainFrameId) {
+      allFrames.push({ id: node.frame.id, url: node.frame.url });
+    }
+    for (const child of (node.childFrames || []) as typeof node[]) collect(child);
+  }
+  collect(frameTree as Parameters<typeof collect>[0]);
+  if (allFrames.length === 0) return [];
+
+  const results: FrameRead[] = [];
+  for (const f of allFrames) {
+    try {
+      const text = await Promise.race([
+        evaluateInFrame(client, f.id, `${READ_JS}(null).text`) as Promise<string>,
+        new Promise<null>(resolve => setTimeout(() => resolve(null), perFrameTimeoutMs)),
+      ]);
+      if (typeof text === "string" && text.trim().length >= 50) {
+        results.push({ url: f.url, text: text.trim() });
+      }
+    } catch {
+      // frame eval failed — skip silently
+    }
+  }
+  return results;
+}
+
 async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
   const ids = await evaluate(client, `Object.keys(window.__webpilotRects || {}).map(Number)`) as number[];
   return new Set(ids || []);
@@ -984,8 +1031,48 @@ server.tool(
     if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
-      const result = await evaluate(client, `${READ_JS}(${query ? JSON.stringify(query) : "null"})`) as { text: string };
-      return ok(result.text);
+      // READ_JS returns un-capped text (handler caps after merge + query).
+      const main = (await evaluate(client, `${READ_JS}(null).text`)) as string;
+      const frames = await readFrames(client);
+
+      let merged = main;
+      for (const f of frames) {
+        merged += `\n\n--- iframe: ${f.url} ---\n${f.text}`;
+      }
+
+      // Apply query filter to the FULL merged text BEFORE capping — otherwise
+      // a query like "Cornell" on a long Wikipedia article can't find matches
+      // deep in the body, because the cap fires first and the query sees only
+      // the lead section.
+      if (query) {
+        const q = query.toLowerCase();
+        const lines = merged.split("\n");
+        const matches: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].toLowerCase().includes(q)) {
+            const start = Math.max(0, i - 2);
+            const end = Math.min(lines.length, i + 5);
+            matches.push(lines.slice(start, end).join("\n"));
+          }
+        }
+        if (matches.length > 0) {
+          merged = `Found ${matches.length} sections matching '${query}':\n\n${matches.join("\n---\n")}`;
+        }
+      }
+
+      // 200k cap is "effectively infinite for normal pages" — Wikipedia/Python
+      // docs (the longest in the 70-site benchmark, at ~180k uncapped) fit
+      // entirely. Marker tells the model when it fired so they know to use
+      // query or accept the partial.
+      const MAX = 200_000;
+      let output = merged;
+      if (output.length > MAX) {
+        const total = output.length;
+        output = output.substring(0, MAX) +
+          `\n\n[... truncated at ${MAX} of ${total} chars — use read({query:"term"}) to find specific content]`;
+      }
+
+      return ok(output);
     } catch (e) {
       return err(`Read failed: ${e instanceof Error ? e.message : e}`);
     }
