@@ -9,9 +9,15 @@ import {
   waitForLoadingIndicators,
   type FrameInfo,
 } from "./cdp.js";
-import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
+import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+const HIGHLIGHT = !["", "0", "false"].includes((process.env.WEBPILOT_HIGHLIGHT ?? "").toLowerCase());
+
+function highlight(client: CDP.Client, id: number): void {
+  if (!HIGHLIGHT) return;
+  evaluate(client, `${HIGHLIGHT_JS}(${id})`).catch(() => {});
+}
 
 // ── Helpers ──
 
@@ -630,6 +636,7 @@ server.tool(
       const resolved = await resolveElement(client, element, "PRESS");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
+      highlight(client, id);
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element not found. Run scan first.");
@@ -690,6 +697,7 @@ server.tool(
       const resolved = await resolveElement(client, element, "TYPE");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
+      highlight(client, id);
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element not found. Run scan first.");
@@ -762,6 +770,7 @@ server.tool(
       const resolved = await resolveElement(client, element, "SELECT");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
+      highlight(client, id);
       const result = await evaluate(client, `${SELECT_JS}(${id}, ${JSON.stringify(value)})`) as {
         ok?: boolean; error?: string; selected?: string; actual?: string;
       };
@@ -785,6 +794,7 @@ server.tool(
       const resolved = await resolveElement(client, element, "TOGGLE");
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
+      highlight(client, id);
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element not found. Run scan first.");
@@ -820,6 +830,7 @@ server.tool(
       const resolved = await resolveElement(client, element);
       if ("error" in resolved) return err(resolved.error);
       const id = resolved.id;
+      highlight(client, id);
 
       const rect = await getRect(client, id);
       if (!rect) return err("Element not found. Run scan first.");

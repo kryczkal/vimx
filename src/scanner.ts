@@ -819,6 +819,42 @@ export const SELECT_JS = `((id, value) => {
   return { ok: true, selected: option.textContent.trim(), actual: el.options[el.selectedIndex]?.textContent?.trim() };
 })`;
 
+// 100ms magenta pulse on the target element. Fire-and-forget — purely cosmetic,
+// only enabled when WEBPILOT_HIGHLIGHT is set. No-op for stale or iframe-only refs.
+export const HIGHLIGHT_JS = `((id) => {
+  const el = window.__webpilot?.[id];
+  if (!el || !el.isConnected) return;
+  const r = el.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return;
+
+  let div = document.getElementById("__webpilot_hl");
+  if (!div) {
+    div = document.createElement("div");
+    div.id = "__webpilot_hl";
+    Object.assign(div.style, {
+      position: "fixed",
+      pointerEvents: "none",
+      zIndex: "2147483647",
+      border: "4px solid #ff00d4",
+      boxShadow: "0 0 12px 2px #ff00d4",
+      borderRadius: "2px",
+      boxSizing: "border-box",
+      opacity: "0",
+    });
+    document.body.appendChild(div);
+  }
+
+  div.style.left = r.left + "px";
+  div.style.top = r.top + "px";
+  div.style.width = r.width + "px";
+  div.style.height = r.height + "px";
+
+  div.animate(
+    [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }],
+    { duration: 100, easing: "ease-out" }
+  );
+})`;
+
 export const READ_JS = `((query) => {
   const SKIP = new Set(["SCRIPT","STYLE","NOSCRIPT","SVG","PATH","META","LINK","BR"]);
   const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
