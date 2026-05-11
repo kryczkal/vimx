@@ -5,7 +5,8 @@ import type CDP from "chrome-remote-interface";
 import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
-  handlePendingDialog, onDialog, type FrameInfo,
+  handlePendingDialog, onDialog, startObserving, waitForSettle,
+  type FrameInfo,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS } from "./scanner.js";
 
@@ -150,25 +151,12 @@ function formatScanResult(scan: ScanResult): string {
   return lines.join("\n");
 }
 
-async function runScan(browser?: string): Promise<ScanResult> {
-  const client = await getClient(CDP_PORT);
-  await evaluate(client, `new Promise(resolve => {
-    let timer;
-    const done = () => { if (obs) obs.disconnect(); resolve(); };
-    const reset = () => { clearTimeout(timer); timer = setTimeout(done, 400); };
-    const obs = new MutationObserver(reset);
-    obs.observe(document.body, { childList: true, subtree: true });
-    reset();
-    setTimeout(done, 4000);
-  })`);
+async function scanPage(client: CDP.Client): Promise<ScanResult> {
   const result = await evaluate(client, SCANNER_JS) as ScanResult;
 
-  // Scan child frames for additional interactive elements
   try {
     const frameElements = await scanFrames(client);
     if (frameElements.length > 0) {
-      // Merge frame elements into main scan, storing them with stable IDs
-      // in the main page's __webpilot so press/type/toggle can find them
       const mergeResult = await evaluate(client, `((frameEls) => {
         if (!window.__wpIdMap) window.__wpIdMap = new WeakMap();
         if (!window.__wpNextId) window.__wpNextId = 0;
@@ -178,7 +166,6 @@ async function runScan(browser?: string): Promise<ScanResult> {
           window.__webpilotRects[id] = { x: fe.x, y: fe.y };
           window.__webpilotLabels[id] = fe.label;
           window.__webpilotAffordances[id] = fe.affordance;
-          // No DOM element ref for cross-frame elements — mark as frame element
           window.__webpilot[id] = { __frameElement: true, x: fe.x, y: fe.y };
           added.push({ ...fe, id });
         }
@@ -192,11 +179,16 @@ async function runScan(browser?: string): Promise<ScanResult> {
       }
       result.total += mergeResult.length;
     }
-  } catch {
-    // Frame scanning failed — continue with main frame results only
-  }
+  } catch {}
 
   return result;
+}
+
+async function runScan(browser?: string): Promise<ScanResult> {
+  const client = await getClient(CDP_PORT);
+  await startObserving(client);
+  await waitForSettle(client);
+  return scanPage(client);
 }
 
 interface FrameElement {
@@ -409,7 +401,6 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
     onDialog(),
   ]);
 
-  await new Promise(r => setTimeout(r, 50));
   if (getPendingDialog()) return;
 
   // CDP dispatchKeyEvent fires DOM events but doesn't trigger the browser's
@@ -444,21 +435,29 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
   }
 }
 
-async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number } | null> {
-  // Scroll element into view if needed, then return fresh coordinates
+async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number; obscured?: string } | null> {
   return await evaluate(client, `(() => {
     const el = window.__webpilot?.[${id}];
     if (!el) return null;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return null;
-    // If outside viewport, scroll into view first
     if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) {
       el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-      const r2 = el.getBoundingClientRect();
-      return { x: r2.left + r2.width / 2, y: r2.top + r2.height / 2 };
     }
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  })()`) as { x: number; y: number } | null;
+    const r2 = el.getBoundingClientRect();
+    const x = r2.left + r2.width / 2;
+    const y = r2.top + r2.height / 2;
+
+    const top = document.elementFromPoint(x, y);
+    if (!top || top === el || el.contains(top)) return { x, y };
+
+    // Obscured — describe what's blocking
+    const tag = top.tagName.toLowerCase();
+    const role = top.getAttribute("role");
+    const text = (top.getAttribute("aria-label") || top.innerText || "").substring(0, 40).trim().replace(/\\n+/g, " ");
+    const desc = role ? tag + '[role="' + role + '"]' : tag;
+    return { x, y, obscured: desc + (text ? ' "' + text + '"' : "") };
+  })()`) as { x: number; y: number; obscured?: string } | null;
 }
 
 async function checkElement(client: CDP.Client, id: number): Promise<{ error?: string; tag?: string; ok?: boolean }> {
@@ -546,29 +545,35 @@ server.tool(
       const id = resolved.id;
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element coordinates not found. Run scan first.");
+      if (!rect) return err("Element not found. Run scan first.");
+      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
       const before = await snapshotIds(client);
       const urlBefore = await evaluate(client, "location.href") as string;
-      await cdpClick(client, rect.x, rect.y);
 
-      await new Promise(r => setTimeout(r, 300));
+      await startObserving(client);
+      await cdpClick(client, rect.x, rect.y);
 
       const dr = dialogReturn(`Pressed [${id}].`);
       if (dr) return dr;
 
       let navigated = false;
+      let fullNavigation = false;
       try {
+        await waitForSettle(client);
         const urlAfter = await evaluate(client, "location.href") as string;
         navigated = urlAfter !== urlBefore;
-        if (navigated) await waitForNavigation(client);
       } catch {
-        await new Promise(r => setTimeout(r, 1000));
         navigated = true;
+        fullNavigation = true;
+      }
+
+      if (fullNavigation) {
+        try { await waitForNavigation(client); } catch {}
       }
 
       try {
-        const result = await runScan();
+        const result = fullNavigation ? await runScan() : await scanPage(client);
         const text = formatDelta(before, result);
         return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}${alertSuffix()}\n\n${text}`);
       } catch {
@@ -600,20 +605,20 @@ server.tool(
       const id = resolved.id;
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element coordinates not found. Run scan first.");
+      if (!rect) return err("Element not found. Run scan first.");
 
       await cdpClick(client, rect.x, rect.y);
       await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         if (el && document.activeElement !== el) el.focus();
       })()`);
-      await new Promise(r => setTimeout(r, 100));
 
       if (clear) {
         await cdpSelectAll(client);
         await cdpBackspace(client);
-        await new Promise(r => setTimeout(r, 50));
       }
+
+      if (confirm) await startObserving(client);
 
       await cdpType(client, text);
 
@@ -630,7 +635,7 @@ server.tool(
       })()`);
 
       if (confirm) {
-        await new Promise(r => setTimeout(r, 400));
+        await waitForSettle(client);
         await cdpKey(client, confirm);
         const dr = dialogReturn(`Typed into [${id}] (confirmed with ${confirm}).`);
         if (dr) return dr;
@@ -695,11 +700,11 @@ server.tool(
       const id = resolved.id;
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element coordinates not found. Run scan first.");
+      if (!rect) return err("Element not found. Run scan first.");
+      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
       await cdpClick(client, rect.x, rect.y);
 
-      await new Promise(r => setTimeout(r, 50));
       const dr = dialogReturn(`Toggled [${id}].`);
       if (dr) return dr;
 
@@ -818,8 +823,6 @@ server.tool(
       const dr = dialogReturn(`Pressed ${keyName}.`);
       if (dr) return dr;
 
-      await new Promise(r => setTimeout(r, 100));
-
       const focus = await evaluate(client, `(() => {
         const el = document.activeElement;
         if (!el || el === document.body) return "Focus: none";
@@ -886,6 +889,7 @@ server.tool(
     if (blocked) return blocked;
     try {
       const client = await getClient(CDP_PORT);
+      await startObserving(client);
       if (target) {
         await evaluate(client, `(() => {
           const labels = window.__webpilotLabels || {};
@@ -909,8 +913,8 @@ server.tool(
       } else {
         await evaluate(client, `window.scrollBy({ top: window.innerHeight * 0.8, behavior: "instant" })`);
       }
-      await new Promise(r => setTimeout(r, 300));
-      const text = formatScanResult(await runScan());
+      await waitForSettle(client);
+      const text = formatScanResult(await scanPage(client));
       return ok(`Scrolled${target ? ` "${target}"` : ""} down.\n\n${text}`);
     } catch (e) {
       return err(`Scroll failed: ${e instanceof Error ? e.message : e}`);

@@ -30,7 +30,6 @@ export async function handlePendingDialog(client: CDP.Client, accept: boolean, t
   if (!pendingDialog) throw new Error("No dialog is currently open.");
   await client.Page.handleJavaScriptDialog({ accept, promptText: text });
   pendingDialog = null;
-  await sleep(300);
 }
 
 function setupDialogHandler(client: CDP.Client): void {
@@ -266,14 +265,10 @@ export async function navigateTo(client: CDP.Client, url: string): Promise<void>
   const { frameId } = await client.Page.navigate({ url });
   if (!frameId) throw new Error("Navigation failed — no frame returned.");
 
-  // Wait for load, with timeout
   await Promise.race([
     client.Page.loadEventFired(),
     sleep(10_000),
   ]);
-
-  // Extra settle time for SPAs that render after load
-  await sleep(300);
 }
 
 export async function waitForNavigation(client: CDP.Client): Promise<void> {
@@ -281,5 +276,41 @@ export async function waitForNavigation(client: CDP.Client): Promise<void> {
     client.Page.loadEventFired(),
     sleep(5_000),
   ]);
-  await sleep(300);
+}
+
+export async function startObserving(client: CDP.Client): Promise<void> {
+  await evaluate(client, `(() => {
+    if (window.__wpObs?.observer) window.__wpObs.observer.disconnect();
+    window.__wpObs = { count: 0, lastTime: 0 };
+    const obs = new MutationObserver(() => {
+      window.__wpObs.count++;
+      window.__wpObs.lastTime = Date.now();
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    window.__wpObs.observer = obs;
+  })()`);
+}
+
+export async function waitForSettle(client: CDP.Client): Promise<void> {
+  await evaluate(client, `new Promise(resolve => {
+    const obs = window.__wpObs;
+    if (!obs || !obs.observer) { resolve(); return; }
+    const QUIET = 80;
+    const CAP = 2000;
+    const start = Date.now();
+    const check = () => {
+      if (Date.now() - start > CAP) { obs.observer.disconnect(); resolve(); return; }
+      if (obs.count === 0) {
+        setTimeout(() => {
+          if (obs.count === 0) { obs.observer.disconnect(); resolve(); }
+          else check();
+        }, QUIET);
+        return;
+      }
+      const elapsed = Date.now() - obs.lastTime;
+      if (elapsed >= QUIET) { obs.observer.disconnect(); resolve(); }
+      else setTimeout(check, QUIET - elapsed);
+    };
+    check();
+  })`);
 }
