@@ -861,129 +861,25 @@ export const HIGHLIGHT_JS = `((id) => {
   );
 })`;
 
+// read() returns the browser's rendered text (innerText) of the chosen roots.
+// innerText already respects display/visibility/whitespace collapsing —
+// reimplementing that as a custom walker bought us nothing except markdown
+// overhead that wasn't paying its way. 70-site survey (May 11): old walker
+// emitted ~1.83× the chars per page on long-form content (Wikipedia, MDN)
+// to express the same prose, because every [text](href) wrapper costs ~3×
+// the link text. Agents follow links via scan(), not via inline hrefs.
+//
+// Multi-root preserved (catches portal-rendered modals like LinkedIn compose).
+// Chrome-strip and root-selection edge cases are separate follow-ups.
 export const READ_JS = `((query) => {
-  const SKIP = new Set(["SCRIPT","STYLE","NOSCRIPT","SVG","PATH","META","LINK","BR"]);
-  const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
   const MAX = 12000;
 
-  function visState(el, isRoot) {
-    const s = getComputedStyle(el);
-    if (s.display === "none" || s.visibility === "hidden") return "skip";
-    if (s.opacity === "0") return "hidden";
-    // Root nodes are exempt from the offsetParent check — modal containers
-    // are typically position:fixed (offsetParent === null) but their
-    // descendants live inside the fixed context and pass normally. This also
-    // rescues sites whose <main> happens to be in a weird offsetParent state
-    // (MDN was returning empty under the old strict check).
-    if (!isRoot && !el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return "skip";
-    return "visible";
-  }
-
-  function walk(node, out, depth, parentHidden, isRoot) {
-    if (out.length > MAX) return;
-    if (node.nodeType === 3) {
-      const t = node.textContent.trim();
-      if (t) {
-        if (parentHidden) out.push("\\n[hidden] " + t);
-        else out.push(t);
-      }
-      return;
-    }
-    if (node.nodeType !== 1) return;
-    const tag = node.tagName;
-    if (SKIP.has(tag)) return;
-    const vis = visState(node, isRoot);
-    if (vis === "skip") return;
-    const isHidden = parentHidden || vis === "hidden";
-
-    // Headings
-    const hMatch = tag.match(/^H([1-6])$/);
-    if (hMatch) {
-      const text = node.textContent.trim();
-      if (text) out.push("\\n" + "#".repeat(parseInt(hMatch[1])) + " " + text + "\\n");
-      return;
-    }
-
-    // Links
-    if (tag === "A") {
-      const text = node.textContent.trim();
-      const href = node.getAttribute("href") || "";
-      if (text && href && !href.startsWith("javascript:")) {
-        out.push("[" + text.substring(0, 80) + "](" + href.substring(0, 120) + ")");
-      } else if (text) {
-        out.push(text);
-      }
-      return;
-    }
-
-    // Images
-    if (tag === "IMG") {
-      const alt = node.alt || node.title;
-      if (alt) out.push("![" + alt.substring(0, 60) + "]");
-      return;
-    }
-
-    // List items
-    if (tag === "LI") {
-      out.push("\\n- ");
-    }
-
-    // Table rows — walk into cells, add newlines between rows
-    if (tag === "TR") {
-      out.push("\\n");
-    }
-
-    // Strong/bold
-    if (tag === "STRONG" || tag === "B") {
-      const text = node.textContent.trim();
-      if (text) out.push("**" + text + "**");
-      return;
-    }
-
-    // Emphasis
-    if (tag === "EM" || tag === "I") {
-      const text = node.textContent.trim();
-      if (text) out.push("*" + text + "*");
-      return;
-    }
-
-    // Strikethrough (useful for sale prices)
-    if (tag === "DEL" || tag === "S") {
-      const text = node.textContent.trim();
-      if (text) out.push("~~" + text + "~~");
-      return;
-    }
-
-    // Block elements get newlines
-    if (BLOCK.has(tag)) out.push("\\n");
-
-    for (const child of node.childNodes) {
-      walk(child, out, depth + 1, isHidden, false);
-    }
-    // Descend into shadow roots — web component content (and shadow-rendered
-    // modals) is invisible to plain childNodes walks.
-    if (node.shadowRoot) {
-      for (const child of node.shadowRoot.childNodes) {
-        walk(child, out, depth + 1, isHidden, false);
-      }
-    }
-
-    if (BLOCK.has(tag)) out.push("\\n");
-  }
-
-  // Multi-root: prefer <main> (or article/[role=main]) but additionally walk
-  // body-level siblings that look like a portal-rendered overlay — ARIA
-  // dialogs / aria-modal containers / shadow-component hosts. This catches
-  // LinkedIn-style compose dialogs and Notion/Linear modals that live outside
-  // <main>. Static body-level chrome (site menus, footers) is excluded to
-  // avoid token bloat.
   const roots = [];
   const main = document.querySelector("main, article, [role=main]");
   if (main) {
     roots.push(main);
     for (const child of document.body.children) {
       if (child === main || main.contains(child) || child.contains(main)) continue;
-      if (SKIP.has(child.tagName)) continue;
       const role = (child.getAttribute("role") || "").toLowerCase();
       const isDialog = role === "dialog" || role === "alertdialog" || child.getAttribute("aria-modal") === "true";
       const hasShadow = !!child.shadowRoot;
@@ -994,15 +890,8 @@ export const READ_JS = `((query) => {
     roots.push(document.body);
   }
 
-  const parts = [];
-  for (const root of roots) walk(root, parts, 0, false, true);
-  let md = parts.join(" ")
-    .replace(/ +/g, " ")
-    .replace(/\\n +/g, "\\n")
-    .replace(/\\n{3,}/g, "\\n\\n")
-    .trim();
+  let md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
 
-  // If query provided, extract relevant sections
   if (query) {
     const q = query.toLowerCase();
     const lines = md.split("\\n");
