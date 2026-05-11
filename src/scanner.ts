@@ -531,6 +531,82 @@ export const SCANNER_JS = `(() => {
     groups[affordance].push(entry);
   }
 
+  // Disambiguate duplicate labels pointing to different destinations.
+  // Chain: ancestor text → href segment diff → position index.
+  for (const entries of Object.values(groups)) {
+    const byLabel = {};
+    for (const e of entries) {
+      if (!e.label) continue;
+      if (!byLabel[e.label]) byLabel[e.label] = [];
+      byLabel[e.label].push(e);
+    }
+    for (const [label, dupes] of Object.entries(byLabel)) {
+      if (dupes.length < 2) continue;
+      const hrefs = new Set(dupes.map(d => d.href || ""));
+      if (hrefs.size <= 1) continue; // same destination = true dupe, handled by formatter
+
+      // Strategy 1: ancestor text
+      let resolved = false;
+      for (const d of dupes) {
+        const el = window.__webpilot[d.id];
+        if (!el || el.__frameElement) continue;
+        let node = el.parentElement;
+        let depth = 0;
+        while (node && depth < 6) {
+          const text = (node.innerText || "").trim();
+          if (text && text !== label && text.length > label.length + 3 && text.length < 150) {
+            d._ancestor = text.replace(/\\n+/g, " ").substring(0, 40);
+            break;
+          }
+          node = node.parentElement;
+          depth++;
+        }
+      }
+      const ancestors = dupes.map(d => d._ancestor);
+      if (ancestors.every(Boolean) && new Set(ancestors).size === dupes.length) {
+        for (const d of dupes) {
+          d.label = label + " [" + d._ancestor + "]";
+          window.__webpilotLabels[d.id] = d.label;
+          delete d._ancestor;
+        }
+        resolved = true;
+      } else {
+        for (const d of dupes) delete d._ancestor;
+      }
+      if (resolved) continue;
+
+      // Strategy 2: href segment diff
+      const hrefList = dupes.map(d => d.href || "");
+      if (hrefList.some(Boolean)) {
+        const segments = hrefList.map(h => h.replace(/^[/]/, "").split(/[/&?]/));
+        const maxLen = Math.max(...segments.map(s => s.length));
+        let diffIdx = -1;
+        for (let i = 0; i < maxLen; i++) {
+          const vals = segments.map(s => s[i] || "");
+          if (new Set(vals).size > 1) { diffIdx = i; break; }
+        }
+        if (diffIdx >= 0) {
+          const diffs = segments.map(s => s[diffIdx] || "");
+          if (new Set(diffs).size === dupes.length) {
+            for (let i = 0; i < dupes.length; i++) {
+              const suffix = diffs[i].replace(/=.*/, "").substring(0, 30) || diffs[i].substring(0, 30);
+              dupes[i].label = label + " (" + (diffs[i].includes("=") ? diffs[i].substring(0, 30) : suffix) + ")";
+              window.__webpilotLabels[dupes[i].id] = dupes[i].label;
+            }
+            resolved = true;
+          }
+        }
+      }
+      if (resolved) continue;
+
+      // Strategy 3: position index
+      for (let i = 0; i < dupes.length; i++) {
+        dupes[i].label = label + " (" + (i + 1) + ")";
+        window.__webpilotLabels[dupes[i].id] = dupes[i].label;
+      }
+    }
+  }
+
   const total = Object.keys(window.__webpilotRects).length;
   const pageScrollable = document.documentElement.scrollHeight > innerHeight + 50;
   return {
