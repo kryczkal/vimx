@@ -866,15 +866,20 @@ export const READ_JS = `((query) => {
   const BLOCK = new Set(["P","DIV","SECTION","ARTICLE","HEADER","FOOTER","MAIN","LI","TR","TD","TH","DT","DD","BLOCKQUOTE","FIGCAPTION","DETAILS","SUMMARY"]);
   const MAX = 12000;
 
-  function visState(el) {
+  function visState(el, isRoot) {
     const s = getComputedStyle(el);
     if (s.display === "none" || s.visibility === "hidden") return "skip";
     if (s.opacity === "0") return "hidden";
-    if (!el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return "skip";
+    // Root nodes are exempt from the offsetParent check — modal containers
+    // are typically position:fixed (offsetParent === null) but their
+    // descendants live inside the fixed context and pass normally. This also
+    // rescues sites whose <main> happens to be in a weird offsetParent state
+    // (MDN was returning empty under the old strict check).
+    if (!isRoot && !el.offsetParent && el.tagName !== "BODY" && el.tagName !== "HTML") return "skip";
     return "visible";
   }
 
-  function walk(node, out, depth, parentHidden) {
+  function walk(node, out, depth, parentHidden, isRoot) {
     if (out.length > MAX) return;
     if (node.nodeType === 3) {
       const t = node.textContent.trim();
@@ -887,7 +892,7 @@ export const READ_JS = `((query) => {
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
     if (SKIP.has(tag)) return;
-    const vis = visState(node);
+    const vis = visState(node, isRoot);
     if (vis === "skip") return;
     const isHidden = parentHidden || vis === "hidden";
 
@@ -953,22 +958,44 @@ export const READ_JS = `((query) => {
     if (BLOCK.has(tag)) out.push("\\n");
 
     for (const child of node.childNodes) {
-      walk(child, out, depth + 1, isHidden);
+      walk(child, out, depth + 1, isHidden, false);
+    }
+    // Descend into shadow roots — web component content (and shadow-rendered
+    // modals) is invisible to plain childNodes walks.
+    if (node.shadowRoot) {
+      for (const child of node.shadowRoot.childNodes) {
+        walk(child, out, depth + 1, isHidden, false);
+      }
     }
 
     if (BLOCK.has(tag)) out.push("\\n");
   }
 
-  // Find root: main > article > largest section > body
-  let root = document.querySelector("main")
-    || document.querySelector("article")
-    || document.querySelector("[role=main]");
-  if (!root) {
-    root = document.body;
+  // Multi-root: prefer <main> (or article/[role=main]) but additionally walk
+  // body-level siblings that look like a portal-rendered overlay — ARIA
+  // dialogs / aria-modal containers / shadow-component hosts. This catches
+  // LinkedIn-style compose dialogs and Notion/Linear modals that live outside
+  // <main>. Static body-level chrome (site menus, footers) is excluded to
+  // avoid token bloat.
+  const roots = [];
+  const main = document.querySelector("main, article, [role=main]");
+  if (main) {
+    roots.push(main);
+    for (const child of document.body.children) {
+      if (child === main || main.contains(child) || child.contains(main)) continue;
+      if (SKIP.has(child.tagName)) continue;
+      const role = (child.getAttribute("role") || "").toLowerCase();
+      const isDialog = role === "dialog" || role === "alertdialog" || child.getAttribute("aria-modal") === "true";
+      const hasShadow = !!child.shadowRoot;
+      if (!isDialog && !hasShadow) continue;
+      roots.push(child);
+    }
+  } else {
+    roots.push(document.body);
   }
 
   const parts = [];
-  walk(root, parts, 0, false);
+  for (const root of roots) walk(root, parts, 0, false, true);
   let md = parts.join(" ")
     .replace(/ +/g, " ")
     .replace(/\\n +/g, "\\n")
