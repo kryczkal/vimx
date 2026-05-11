@@ -262,11 +262,13 @@ export async function evaluateInFrame(
 }
 
 export async function navigateTo(client: CDP.Client, url: string): Promise<void> {
-  const { frameId } = await client.Page.navigate({ url });
-  if (!frameId) throw new Error("Navigation failed — no frame returned.");
+  // Fire and forget — Page.navigate's promise itself blocks until any
+  // beforeunload dialog is resolved. We watch for load/dialog events instead.
+  client.Page.navigate({ url }).catch(() => {});
 
   await Promise.race([
     client.Page.loadEventFired(),
+    onDialog(),
     sleep(10_000),
   ]);
 }

@@ -896,6 +896,12 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       await navigateTo(client, url);
+
+      // beforeunload from the old page can hold navigation. Don't try to scan
+      // until the agent handles the dialog (scan would hang on Runtime.evaluate).
+      const dr = dialogReturn(`Navigating to ${url} —`);
+      if (dr) return dr;
+
       const text = formatScanResult(await runScan());
       return ok(`Navigated to ${url}.${alertSuffix()}\n\n${text}`);
     } catch (e) {
