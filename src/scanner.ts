@@ -538,7 +538,7 @@ export const SCANNER_JS = `(() => {
   // we return a flat list (~750 tokens) with deltas (~200 tokens). ~18x fewer tokens over a session.
   // The tradeoff is lost co-location context (which button belongs to which dialog/form).
   // This disambiguator handles collisions; if it proves insufficient, consider annotating every
-  // element with its nearest semantic ancestor: `[5] button "Delete" (dialog)` — adds context
+  // element with its nearest semantic ancestor: [5] button "Delete" (dialog) — adds context
   // without going hierarchical.
   for (const entries of Object.values(groups)) {
     const byLabel = {};
@@ -552,33 +552,113 @@ export const SCANNER_JS = `(() => {
       const hrefs = new Set(dupes.map(d => d.href || ""));
       if (hrefs.size <= 1) continue; // same destination = true dupe, handled by formatter
 
-      // Strategy 1: ancestor text
+      // Strategy 1: repeating sibling boundary + unique text extraction.
+      // Walk up from each element to find a "list item" boundary (ancestor
+      // whose parent has 3+ children with matching tag+class). Then compare
+      // text across siblings to find what's UNIQUE to each item.
       let resolved = false;
-      for (const d of dupes) {
-        const el = window.__webpilot[d.id];
-        if (!el || el.__frameElement) continue;
-        let node = el.parentElement;
-        let depth = 0;
-        while (node && depth < 6) {
-          const text = (node.innerText || "").trim();
-          if (text && text !== label && text.length > label.length + 3 && text.length < 150) {
-            d._ancestor = text.replace(/\\n+/g, " ").substring(0, 40);
+      var contexts = [];
+      for (var di = 0; di < dupes.length; di++) {
+        var el = window.__webpilot[dupes[di].id];
+        if (!el || el.__frameElement) { contexts.push(null); continue; }
+        var node = el;
+        var boundary = null;
+        for (var depth = 0; depth < 12; depth++) {
+          var parent = node.parentElement;
+          if (!parent) break;
+          var myKey = node.tagName + "|" + (node.className || "").toString();
+          var sibCount = 0;
+          for (var si = 0; si < parent.children.length; si++) {
+            var sibKey = parent.children[si].tagName + "|" + (parent.children[si].className || "").toString();
+            if (sibKey === myKey) sibCount++;
+          }
+          if (sibCount >= 3) { boundary = node; break; }
+          node = parent;
+        }
+        if (!boundary) { contexts.push(null); continue; }
+
+        // Extract text candidates from this list item
+        var candidates = [];
+        // Headings first
+        var headings = boundary.querySelectorAll("h1,h2,h3,h4,h5,h6");
+        for (var hi = 0; hi < headings.length; hi++) {
+          var ht = (headings[hi].innerText || "").trim();
+          if (ht && ht !== label && ht.length > 2) candidates.push(ht.substring(0, 50));
+        }
+        // Links with non-target text
+        var links = boundary.querySelectorAll("a");
+        for (var li = 0; li < links.length; li++) {
+          var lt = (links[li].innerText || "").trim();
+          if (lt && lt !== label && lt.length > 3 && lt.length < 80) candidates.push(lt.substring(0, 50));
+        }
+        // Direct text nodes
+        var tw = document.createTreeWalker(boundary, 4);
+        while (tw.nextNode()) {
+          var wt = tw.currentNode.textContent.trim();
+          if (wt && wt.length > 3 && wt.length < 60 && wt !== label) {
+            candidates.push(wt.substring(0, 50));
+            if (candidates.length > 10) break;
+          }
+        }
+        contexts.push({ boundary: boundary, candidates: candidates });
+      }
+
+      // Second pass: find which candidate text is UNIQUE across siblings
+      if (contexts.every(Boolean)) {
+        // For each candidate position, check uniqueness
+        var maxCands = 0;
+        for (var ci = 0; ci < contexts.length; ci++) {
+          if (contexts[ci].candidates.length > maxCands) maxCands = contexts[ci].candidates.length;
+        }
+        for (var pos = 0; pos < maxCands; pos++) {
+          var vals = [];
+          for (var ci = 0; ci < contexts.length; ci++) {
+            vals.push(contexts[ci].candidates[pos] || "");
+          }
+          var valSet = {};
+          for (var vi = 0; vi < vals.length; vi++) valSet[vals[vi]] = 1;
+          if (Object.keys(valSet).length === dupes.length && vals.every(function(v) { return v; })) {
+            // This position has unique values across all duplicates
+            for (var di = 0; di < dupes.length; di++) {
+              dupes[di].label = label + " [" + vals[di] + "]";
+              window.__webpilotLabels[dupes[di].id] = dupes[di].label;
+            }
+            resolved = true;
             break;
           }
-          node = node.parentElement;
-          depth++;
         }
       }
-      const ancestors = dupes.map(d => d._ancestor);
-      if (ancestors.every(Boolean) && new Set(ancestors).size === dupes.length) {
-        for (const d of dupes) {
-          d.label = label + " [" + d._ancestor + "]";
-          window.__webpilotLabels[d.id] = d.label;
-          delete d._ancestor;
+
+      // Fallback: simple ancestor text (no sibling comparison)
+      if (!resolved) {
+        for (var di = 0; di < dupes.length; di++) {
+          var el = window.__webpilot[dupes[di].id];
+          if (!el || el.__frameElement) continue;
+          var node = el.parentElement;
+          var depth = 0;
+          while (node && depth < 8) {
+            var text = (node.innerText || "").trim();
+            if (text && text !== label && text.length > label.length + 3 && text.length < 150) {
+              dupes[di]._anc = text.replace(/[\\r\\n]+/g, " ").substring(0, 40);
+              break;
+            }
+            node = node.parentElement;
+            depth++;
+          }
         }
-        resolved = true;
-      } else {
-        for (const d of dupes) delete d._ancestor;
+        var ancs = dupes.map(function(d) { return d._anc; });
+        var ancSet = {};
+        for (var ai = 0; ai < ancs.length; ai++) if (ancs[ai]) ancSet[ancs[ai]] = 1;
+        if (ancs.every(Boolean) && Object.keys(ancSet).length === dupes.length) {
+          for (var di = 0; di < dupes.length; di++) {
+            dupes[di].label = label + " [" + dupes[di]._anc + "]";
+            window.__webpilotLabels[dupes[di].id] = dupes[di].label;
+            delete dupes[di]._anc;
+          }
+          resolved = true;
+        } else {
+          for (var di = 0; di < dupes.length; di++) delete dupes[di]._anc;
+        }
       }
       if (resolved) continue;
 
