@@ -451,6 +451,16 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
 // quirks; ours matches their result on the common case for ~10× less code.
 // If we hit hard-to-diagnose cases, swap elementFromPoint for elementsFromPoint
 // (plural) to expose the full vertical stack at the click point.
+//
+// Element stability check — INTENTIONALLY NOT DONE. Playwright waits for the
+// bounding rect to be identical across two animation frames before clicking,
+// to avoid mid-animation misses. Measured on 8 scenarios (Wikipedia, Twitter,
+// Stripe, Linear, BBC, Amazon, Amazon-mid-hover, Amazon-during-carousel):
+// zero elements moved >2px in the 50ms window between getRect and cdpClick,
+// even right after hover triggers a mega-menu animation. Motion does happen,
+// but only at 150ms+ — by then the agent's think time has elapsed and the
+// next getRect re-reads fresh coords. Add a one-RAF rect re-read here if a
+// real silent-misclick caused by motion ever shows up in a session.
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number; obscured?: string } | null> {
   return await evaluate(client, `(() => {
     const el = window.__webpilot?.[${id}];
