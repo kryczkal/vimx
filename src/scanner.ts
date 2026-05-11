@@ -463,30 +463,42 @@ export const SCANNER_JS = `(() => {
     return false;
   }
 
+  // True if elementFromPoint's answer is geometrically consistent — the
+  // returned element's own bounding rect must contain the test point.
+  // Defends against Chromium phantom hits (e.g. late-upgraded custom elements
+  // claiming a hit at coords nowhere near their actual rect, as ed.ac.uk's
+  // <uoe-consent> does for every (x,y) on the page).
+  function elAtPoint(el, x, y) {
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+
+  // True if (x, y) reaches hint.el — either elementFromPoint matches it
+  // (or an ancestor/descendant), or the reported occluder is a phantom.
+  function pointReachesHint(hint, x, y) {
+    const found = deepElementFromPoint(x, y);
+    if (!found) return false;
+    if (!elAtPoint(found, x, y)) return true;
+    return elContains(hint.el, found) || elContains(found, hint.el);
+  }
+
   // Overlap detection — uses shadow-aware elementFromPoint
   const results = [];
   for (const hint of filtered) {
     if (hint.iframeEditor) { results.push(hint); continue; }
     const r = hint.rect;
-    const midX = r.left + r.width * 0.5;
-    const midY = r.top + r.height * 0.5;
-    const found = deepElementFromPoint(midX, midY);
-    if (!found) continue;
-    if (!(elContains(hint.el, found) || elContains(found, hint.el))) {
-      let cornerHit = false;
-      for (const y of [r.top + 0.1, r.top + r.height - 0.1]) {
-        for (const x of [r.left + 0.1, r.left + r.width - 0.1]) {
-          const el2 = deepElementFromPoint(x, y);
-          if (el2 && (elContains(hint.el, el2) || elContains(el2, hint.el))) {
-            cornerHit = true;
-            break;
-          }
-        }
-        if (cornerHit) break;
-      }
-      if (!cornerHit) continue;
+    if (pointReachesHint(hint, r.left + r.width * 0.5, r.top + r.height * 0.5)) {
+      results.push(hint);
+      continue;
     }
-    results.push(hint);
+    let cornerHit = false;
+    for (const y of [r.top + 0.1, r.top + r.height - 0.1]) {
+      for (const x of [r.left + 0.1, r.left + r.width - 0.1]) {
+        if (pointReachesHint(hint, x, y)) { cornerHit = true; break; }
+      }
+      if (cornerHit) break;
+    }
+    if (cornerHit) results.push(hint);
   }
 
   // Build output grouped by affordance
