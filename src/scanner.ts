@@ -819,7 +819,7 @@ export const SELECT_JS = `((id, value) => {
   return { ok: true, selected: option.textContent.trim(), actual: el.options[el.selectedIndex]?.textContent?.trim() };
 })`;
 
-// 100ms magenta pulse on the target element. Fire-and-forget — purely cosmetic,
+// 200ms magenta pulse on the target element. Fire-and-forget — purely cosmetic,
 // only enabled when WEBPILOT_HIGHLIGHT is set. No-op for stale or iframe-only refs.
 export const HIGHLIGHT_JS = `((id) => {
   const el = window.__webpilot?.[id];
@@ -851,7 +851,7 @@ export const HIGHLIGHT_JS = `((id) => {
 
   div.animate(
     [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }],
-    { duration: 100, easing: "ease-out" }
+    { duration: 200, easing: "ease-out" }
   );
 })`;
 
