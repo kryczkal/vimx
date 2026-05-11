@@ -413,6 +413,22 @@ export const SCANNER_JS = `(() => {
     }
     if (hasClickableChild) continue;
 
+    // Drop empty-labeled non-semantic leaves when a labeled clickable
+    // ancestor is already in scan — the agent has a strictly better entry
+    // (e.g. icon span inside a button: button is labeled, span is not).
+    if ((getLabel(hint.el) || "").trim() === "") {
+      let n = hint.el.parentElement;
+      let labeledAncestor = false;
+      while (n && n !== document.body) {
+        if (hintsByEl.has(n) && (getLabel(n) || "").trim() !== "") {
+          labeledAncestor = true;
+          break;
+        }
+        n = n.parentElement;
+      }
+      if (labeledAncestor) continue;
+    }
+
     // Leaf non-semantic element with no clickable children: keep only if
     // it has cursor:pointer (likely intentionally interactive) or has
     // meaningful text content (likely a styled button/link).
