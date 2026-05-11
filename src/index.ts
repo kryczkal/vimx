@@ -27,12 +27,21 @@ interface ScanResult {
   pageScrollable?: boolean;
 }
 
+function dedup(entries: ScanEntry[]): ScanEntry[] {
+  const seen = new Set<string>();
+  return entries.filter(e => {
+    const key = e.label + "|" + (e.href || "");
+    if (!e.label || !seen.has(key)) { seen.add(key); return true; }
+    return false;
+  });
+}
+
 function formatGroup(entries: ScanEntry[], formatter: (e: ScanEntry) => string): string[] {
   const lines: string[] = [];
   let lastScrollMore: number | null = null;
   let lastScrollLabel: string | null = null;
 
-  for (const e of entries) {
+  for (const e of dedup(entries)) {
     lines.push(formatter(e));
     if (e.scrollContainer && e.scrollMore) {
       lastScrollMore = e.scrollMore;
