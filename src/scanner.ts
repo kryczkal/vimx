@@ -861,13 +861,27 @@ export const HIGHLIGHT_JS = `((id) => {
   );
 })`;
 
-// read() returns the browser's rendered text (innerText) of the chosen roots.
-// innerText already respects display/visibility/whitespace collapsing —
-// reimplementing that as a custom walker bought us nothing except markdown
-// overhead that wasn't paying its way. 70-site survey (May 11): old walker
-// emitted ~1.83× the chars per page on long-form content (Wikipedia, MDN)
-// to express the same prose, because every [text](href) wrapper costs ~3×
-// the link text. Agents follow links via scan(), not via inline hrefs.
+// read() returns the browser's rendered text (innerText) of the chosen roots,
+// with absolute URLs appended after each <a href> so the agent can follow
+// links via navigate(url) directly.
+//
+// Why URLs inline: scan() is viewport-bound (Vimium's cropRectToVisible
+// excludes anchors below the fold). A 99-site link-overlap probe showed 52%
+// of <a href> elements on a typical page are off-viewport — scan can't see
+// them, and 2,533 of those are cross-origin where scan's host-stripped
+// `→ /path` is unusable for navigate(url) even when scan does see them. read
+// is the only place an agent reliably learns those URLs.
+//
+// Why DOM-mutation, not a walker: innerText already handles
+// display/visibility/whitespace/block-layout correctly. We append a text
+// node " <abs-url>" as a child of each qualifying <a>, capture innerText,
+// then remove the appended nodes. No walker rewrite, no markdown overhead —
+// the anchor renders as "text https://...". Cost +~125% chars on link-dense
+// pages; the 200k cap with truncation marker handles the long Wikipedia case.
+//
+// Skips: javascript:/# anchors (no navigable URL), anchors with <2 chars of
+// visible text AND no img alt/title (icon-only links would produce orphan
+// URL fragments with no preceding text to anchor them).
 //
 // Multi-root preserved (catches portal-rendered modals like LinkedIn compose).
 // Chrome-strip and root-selection edge cases are separate follow-ups.
@@ -901,11 +915,38 @@ export const READ_JS = `(() => {
   const stripStyle = document.createElement("style");
   stripStyle.textContent = 'nav, footer, aside, [role="navigation"], [role="contentinfo"], [role="complementary"] { display: none !important; }';
   document.head.appendChild(stripStyle);
+
+  const anchorMods = [];
   let md;
   try {
+    for (const root of roots) {
+      for (const a of root.querySelectorAll("a[href]")) {
+        const href = a.getAttribute("href");
+        if (!href || href.startsWith("javascript:") || href.startsWith("#")) continue;
+
+        // Empty-text anchors (image/icon-only links): try alt/title as
+        // fallback text so the URL still has a label to attach to.
+        if ((a.innerText || "").trim().length < 2) {
+          const img = a.querySelector("img");
+          const alt = (img?.alt || img?.title || "").trim();
+          if (alt.length < 2) continue;
+          const altNode = document.createTextNode(alt);
+          a.insertBefore(altNode, a.firstChild);
+          anchorMods.push(altNode);
+        }
+
+        let url;
+        try { url = new URL(href, location.href).href; } catch { continue; }
+        if (url.length > 200) url = url.substring(0, 200);
+        const urlNode = document.createTextNode(" " + url);
+        a.appendChild(urlNode);
+        anchorMods.push(urlNode);
+      }
+    }
     md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
   } finally {
     stripStyle.remove();
+    for (const node of anchorMods) node.remove();
   }
 
   return { text: md };
