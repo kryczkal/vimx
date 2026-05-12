@@ -27,3 +27,13 @@ A reproducible failure mode: any "find(query)" or similar that *looks* smart wil
 - Surface site-internal search affordances in scan output when `<input type="search">` / `[role="search"]` are detected — communicates "this page has search, use type+enter to drive it."
 
 Neither is a new tool. Both are improvements to existing primitives.
+
+## Deferred direction: rename `read` → `find` and/or split
+
+Attempted 2026-05-12: rename the existing `read` tool to `find` to lean further into the search framing. Surfaced an unsolved semantic split: "where is X on the page" (regex required) and "read this article in full" (no regex needed) are different intents that don't share a tool name comfortably. A clean split (`find(regex)` + `read()` as separate tools) was implemented and then reverted while worktree/CDP-port infrastructure is being sorted out — couldn't smoke-test cleanly against an isolated chromium.
+
+State preserved as a backlog item. When picked back up, decide:
+- One tool with the dual purpose (status quo `read(regex?)`)
+- Two tools split by intent (`read()` for ingest, `find(regex)` for locate)
+- Rename only (`find(regex?)` with no-regex returning full page — awkward)
+The split is structurally cleanest per "expose primitives" but doubles the surface. Worth a small bench when the worktree+chromium setup is stable.

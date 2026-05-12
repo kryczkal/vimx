@@ -68,6 +68,25 @@ Lesson for future ingests: grep hit counts are a *sampling tool*, not a *load co
 
 The viewport-bound scan decision is not arbitrary — it's backed by hard measurement (99 sites, ~7× per-session token cost difference). Worth remembering when future hypotheses propose surfacing more in scan: the cost ceiling is real and was paid for in benchmark time. Conversely, the chrome-strip arc is the inverse — a benchmark that *cleanly validated* a change still got the change removed on principle. Both directions matter when interpreting future ingests.
 
+## [2026-05-12] parked | read → find rename / split
+
+Started the rename `read` → `find` per the "improve discoverability of search-shaped functionality" follow-up from the find(query) refutation. Implemented the rename, then surfaced a semantic split: "where is X" (regex) and "read this article" (no regex) don't comfortably share a tool name. Split into `read()` (no args, full ingest) + `find(regex)` (required regex, locate). Built clean.
+
+Smoke testing the split exposed an infrastructure issue: my bench scripts and smoke tests hardcoded `CDP_PORT=9222`, which is the user-level shared chromium. Other agents driving that chromium contaminated my tests (navigated to Wikipedia, read returned Stack Overflow content). The cwt-per-worktree setup allocates dedicated chromiums per worktree (port from `.mcp.json`) precisely to prevent this — but my current cwd is the primary repo (no `.mcp.json`).
+
+Decision: revert the rename + split. Park as a backlog item until worktree/CDP-port infra is sorted. State preserved in [expose-primitives-not-search-engines](../findings/expose-primitives-not-search-engines.md) "Deferred direction" section.
+
+Pages touched:
+- src/index.ts (reverted to single `read(regex?)` tool)
+- wiki/findings/expose-primitives-not-search-engines.md (added "Deferred direction" section)
+- wiki/log.md (this entry)
+
+Reverted (no longer present):
+- wiki/decisions/read-renamed-to-find.md (created then deleted)
+- header notes in wiki/decisions/read-filter-is-regex.md / read-surfaces-link-urls.md / chrome-strip-removed.md
+
+Calibration note: bench scripts should read CDP_PORT from `.mcp.json` rather than hardcode 9222. Filing as a small infra follow-up — important for any future smoke test that needs an isolated chromium.
+
 ## [2026-05-12] refute | find(query) hypothesis based on owner's prior experience
 
 Started implementing `find(query)` per the hypothesis. Owner stopped mid-implementation: webpilot previously shipped a `query` tool with this same API shape, and agents made too-narrow / semantic-style calls (treating it as a search engine that should understand intent). The owner pivoted to `read({regex})` precisely because of that failure pattern.
@@ -88,6 +107,30 @@ Two narrower follow-ups identified for the original "agents abandon webpilot for
 2. Surface site-internal search affordances in scan output when `<input type="search">` / `[role="search"]` exist.
 
 Calibration note: this is the cleanest refutation in the wiki so far — prior implementation experience trumped a hypothesis derived from session analysis. Worth bookmarking as evidence that owner-history is a first-class source alongside session data and benchmarks.
+
+## [2026-05-12] descope | page-state-meta-detection (cookies/signin/captcha)
+
+Started the bench loop on hypothesis #6. First-pass detector scored:
+- cookieBanner: precision 100%, recall 22% (missed Sourcepoint/Piano CMP iframes)
+- signinRequired: precision 100%, recall 50% (missed multi-step flows)
+- captcha: precision 33% (Stack Overflow / Reddit / Booking flagged as captcha via invisible reCAPTCHA v3 trackers)
+
+Iteration v2 was queued (filter to visible captcha challenges, add CMP iframe patterns, URL-only signin signal). Owner stopped before v2:
+
+> "look realistically. we skip cookies/captchas for this iteration of the tool. its not relevant until the tool is better/cheaper than playwright"
+
+Calibration: page-state meta-detection is polish — useful when the tool's core UX is already ahead. The axes that widen the webpilot-vs-Playwright gap are token economy (won via dedup), reliability on common actions (won via anomaly-flag + clearField), affordance-typed structural correctness, and speed. Cookie detection doesn't move any of those.
+
+Bench artifacts preserved (audit/page-state-detector-bench.mts, audit/page-state-inspect.mts, audit/data/page-state-detector/) — pickable if we ever return.
+
+Status flipped: open → superseded.
+
+Pages touched:
+- wiki/hypotheses/page-state-meta-detection.md (status flip + reasoning)
+- wiki/index.md (annotated in ranked list)
+- wiki/log.md (this entry)
+
+Bench scripts kept untracked for now (no commit) until we decide whether they should live in the repo's audit/ surface.
 
 ## [2026-05-12] ship | anomaly-flag action returns + cdpSelectAll bug fix
 
