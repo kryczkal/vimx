@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 tools/
+
+# per-worktree config (managed by cwt)
+.mcp.json
+.cwt-state/
