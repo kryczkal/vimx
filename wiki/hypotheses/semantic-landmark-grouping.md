@@ -2,10 +2,21 @@
 created: 2026-05-12
 last_verified: 2026-05-12
 type: hypothesis
-status: open
-evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/chrome-redundancy-floods-scan-output.md]
+status: partially-shipped
+evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/chrome-redundancy-floods-scan-output.md, benchmarks/2026-05-12-region-detector-b0.md, benchmarks/2026-05-12-stateful-scan-dedup-v1.md]
 tags: [scan, hierarchy, disambiguation, landmarks]
 ---
+
+## Partially shipped 2026-05-12
+
+What landed (via the stateful-scan-chrome-dedup ship and its post-ship (c) refinement):
+- Region detection runs inline in `SCANNER_JS` ([detector B from the B0 benchmark](../benchmarks/2026-05-12-region-detector-b0.md)). Each scan entry carries `region` internally — header/nav/main/aside/footer/modal/search.
+- Regions are load-bearing in two places: (1) the scanner's disambiguator promotes them to label suffixes (`"Save in nav"` vs `"Save in main"`) when duplicate labels span distinct regions; (2) the dedup formatter's "Unchanged — header: 7 · main: 18 · nav: 4 · ..." summary line groups elided ids by region.
+- Region assignment pinned via `__wpRegionMap` WeakMap so identity stays stable across rescans.
+
+See [decisions/stateful-scan-with-region-dedup.md](../decisions/stateful-scan-with-region-dedup.md) for the full architecture.
+
+What's NOT shipped: the **hierarchical scan output** envisioned in this hypothesis (region as the top-level grouping, affordance groups nested inside each region). The flat affordance grouping is still primary; regions are surfaced only via the disambiguator + summary line. Real-session evidence showed agents ignore per-entry region tags as decoration (the (c) refinement removed them), so the hierarchical reformat is on hold pending evidence that agents actually *would* use it. Reach for it again only if a session shows region-context reasoning is the missing piece.
 
 # Semantic-landmark grouping in scan output
 

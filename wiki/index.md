@@ -30,18 +30,19 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 - [custom-widget-thrash](findings/custom-widget-thrash.md) — biggest single failure pattern; custom dropdowns burn 6–12 turns of guessing.
 - [tool-rolodex-blind-spots](findings/tool-rolodex-blind-spots.md) — hover/key/expand systematically underused even when scan output hints them.
 - [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md) — query-shaped APIs invite semantic-search misuse regardless of impl; expose regex/primitives and let the agent own query semantics.
+- [post-ship-dedup-edges](findings/post-ship-dedup-edges.md) — six structural edges discovered in real sessions after the dedup ship; four fixed, one inconclusive, one cache-correctness fixed.
 
 ## Hypotheses
 
 Ranked by expected leverage (highest first):
 
 1. [stateful-scan-chrome-dedup](hypotheses/stateful-scan-chrome-dedup.md) — diff repeated scans against page-state cache. **CONFIRMED** (2026-05-12): -83% idle, -89% post-action.
-2. [semantic-landmark-grouping](hypotheses/semantic-landmark-grouping.md) — group scan by ARIA landmarks / HTML5 sections. **Partially shipped** with #1 (region tags on every entry).
+2. [semantic-landmark-grouping](hypotheses/semantic-landmark-grouping.md) — group scan by ARIA landmarks / HTML5 sections. **PARTIALLY SHIPPED 2026-05-12**: regions detected and stored per element, used by the scanner's disambiguator and the dedup "Unchanged — main: N · nav: M" summary line. Hierarchical scan output (region as top-level grouping) is the remaining unshipped piece.
 3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — **CONFIRMED 2026-05-12** as "tool refuses silent failure": anomaly heuristics on `type`/`toggle`/`select`. Bench surfaced & fixed the cdpSelectAll bug along the way.
 4. [find-query-tool](hypotheses/find-query-tool.md) — **REFUTED 2026-05-12**: prior `query` tool had this exact shape; agents made too-narrow semantic calls. The shape of a "natural-language query" API invites misuse regardless of implementation. See [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md).
 5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — **NEXT TO TEST**: action-prescriptive hints (`→ combobox, navigate with key("arrowdown")`) targeting custom-widget thrash. Queued behind post-ship data gathering.
 6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — **SUPERSEDED 2026-05-12**: polish, doesn't move webpilot ahead of Playwright on the axes that matter. Bench started, v1 detector scored cookie 22% recall / captcha 33% precision; deferred before v2 iteration. Revisit only after the tool's core UX is demonstrably ahead.
-7. [tab-switch-resets-scan-cache](hypotheses/tab-switch-resets-scan-cache.md) — safety-conservative: reset per-URL cache on tab activation to avoid background-mutation drift.
+7. [tab-switch-resets-scan-cache](hypotheses/tab-switch-resets-scan-cache.md) — **PARKED 2026-05-12**: safety-conservative; no real-session evidence of the failure mode it would prevent. Ship if a drift case ever surfaces.
 
 ## Sessions
 
@@ -54,6 +55,7 @@ From `/benchmark` runs in claude-code dev sessions (2026-05-10 to 2026-05-12):
 
 - [2026-05-12 anomaly-flag action returns](benchmarks/2026-05-12-anomaly-flag-action-returns.md) — 4/4 PASS; surfaced & fixed the cdpSelectAll bug (real root cause of the Forms shipped-broken case).
 - [2026-05-12 stateful-scan dedup v1](benchmarks/2026-05-12-stateful-scan-dedup-v1.md) — 20 sites; -83% idle / -89% post-action scan output; 0 site failures; 1 noise-level regression.
+- [2026-05-12 cache-key investigation](benchmarks/2026-05-12-cache-key-investigation.md) — confirmed path-only key caused false dedup on Google Flights `?q` state; fixed by including querystring.
 - [2026-05-12 region-detector B0](benchmarks/2026-05-12-region-detector-b0.md) — 20 sites; detector B (ARIA + position fallback) chosen; 100% coverage post-fix.
 - [2026-05-11 chrome-strip validated](benchmarks/2026-05-11-chrome-strip-validated.md) — 70 sites, 2.8% read() savings, zero regressions (feature later removed on principle).
 - [2026-05-11 hit-test obscured detection](benchmarks/2026-05-11-hit-test-obscured.md) — `elementFromPoint` in `getRect`; FP 0–15% pre-scanner-fix.

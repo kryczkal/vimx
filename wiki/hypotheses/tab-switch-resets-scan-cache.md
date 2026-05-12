@@ -2,10 +2,15 @@
 created: 2026-05-12
 last_verified: 2026-05-12
 type: hypothesis
-status: open
+status: parked
+parked_reason: no real-session evidence of the background-mutation drift case this would prevent
 evidence: [sessions/2026-05-12-cursor-export-17-sessions.md]
 tags: [scan, cache, lifecycle, multi-tab]
 ---
+
+## Parked 2026-05-12
+
+No session has shown the failure mode this would prevent. Safety-conservative; would add a small token cost on every tab switch by forcing a fresh full emit. Revisit if a real session ever shows an agent acting on stale cached state from a backgrounded tab.
 
 # Tab switch should reset the per-URL scan cache
 
