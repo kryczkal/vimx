@@ -255,3 +255,25 @@ Filing these here so a future ingest doesn't redo the same false starts.
 ### Surprise worth flagging
 
 Pre-measurement intuition (mine, in the prior analysis): "schema bootstrap is real but not the priority." Confirmed empirically — schema reads were 3.14%, much smaller than they felt in the qualitative read-through. Conversely, the action-return-vs-explicit-scan split (3:1 perception bytes from auto-rescans) was NOT in the qualitative analysis at all — it only surfaced from measurement. This is a case where the quantitative pass corrected the qualitative one. The hypothesis update reflects that.
+
+## [2026-05-12] phase | post-ship data gathering; predicted-effect-annotations queued next
+
+Holding new hypothesis work pending real-session data on this week's ship cycle. Shipped since the last cursor-export batch:
+
+- stateful-scan-chrome-dedup (v1 + post-ship a/b/c/d/f refinements)
+- anomaly-flag in action returns (type / toggle / select)
+- clearField — the actual fix for the Forms shipped-broken case (cdpSelectAll was dispatching Shift+A, not Ctrl+A — every `type(clear:true)` on a non-empty field had been silently producing `prior + typed` since the function was written)
+
+The next session export should measure these deltas. Specifically watch for:
+- Aggregate session tokens on tasks with prior cursor-export pairs (Flights, Forms, Amazon cart, Dayton)
+- Does the Forms task ship clean (no more `Option AOption A` style breakage)?
+- Does the obscured-element abort pattern (session 296dc5de) recover, with the (b) error-bypass returning full scan after an interactive failure?
+- Does the agent reference "still current" framing of full-elision (the (a) wording fix)?
+- Does the agent stumble on querystring-state navigation that previously false-dedupped (the (f) cache-key fix)?
+
+**Next hypothesis to test once new data is in**: [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md). Reframed to **action-prescriptive** (`→ combobox, navigate with key("arrowdown")`) targeting the custom-widget thrash failure mode from cursor-session-5a47ec04. The risk pattern that killed per-entry region tags (decoration agents ignore) applies here too — the reframe is the gate on whether this is worth shipping.
+
+Pages touched:
+- wiki/hypotheses/predicted-effect-annotations.md (queued + reframe note)
+- wiki/index.md (annotated #5 as NEXT TO TEST)
+- wiki/log.md (this entry)

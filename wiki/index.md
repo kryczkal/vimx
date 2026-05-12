@@ -39,8 +39,8 @@ Ranked by expected leverage (highest first):
 2. [semantic-landmark-grouping](hypotheses/semantic-landmark-grouping.md) — group scan by ARIA landmarks / HTML5 sections. **Partially shipped** with #1 (region tags on every entry).
 3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — **CONFIRMED 2026-05-12** as "tool refuses silent failure": anomaly heuristics on `type`/`toggle`/`select`. Bench surfaced & fixed the cdpSelectAll bug along the way.
 4. [find-query-tool](hypotheses/find-query-tool.md) — **REFUTED 2026-05-12**: prior `query` tool had this exact shape; agents made too-narrow semantic calls. The shape of a "natural-language query" API invites misuse regardless of implementation. See [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md).
-5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — heuristic `→ opens_modal` style hints on PRESS elements.
-6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — detect cookie banners, signin walls, captchas as named states.
+5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — **NEXT TO TEST**: action-prescriptive hints (`→ combobox, navigate with key("arrowdown")`) targeting custom-widget thrash. Queued behind post-ship data gathering.
+6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — **SUPERSEDED 2026-05-12**: polish, doesn't move webpilot ahead of Playwright on the axes that matter. Bench started, v1 detector scored cookie 22% recall / captcha 33% precision; deferred before v2 iteration. Revisit only after the tool's core UX is demonstrably ahead.
 7. [tab-switch-resets-scan-cache](hypotheses/tab-switch-resets-scan-cache.md) — safety-conservative: reset per-URL cache on tab activation to avoid background-mutation drift.
 
 ## Sessions

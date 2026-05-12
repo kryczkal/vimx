@@ -7,6 +7,19 @@ evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/agents-hav
 tags: [scan, prediction, agent-loop]
 ---
 
+## Next-to-test as of 2026-05-12
+
+Queued for the next bench loop once we've gathered post-ship session data on the dedup + anomaly-flag + clearField + cache-key fixes.
+
+**Reframe to land on**: action-prescriptive, not descriptive. The risk pattern from per-entry region tags (which agents ignored as decoration) applies here too. To avoid repeating that failure: tie the annotation to the agent's *next action choice*, not just to element-description metadata.
+
+Example shapes that make annotations load-bearing:
+- `[177] input "Public" → combobox, open with key("space"), navigate with key("arrowdown")` — directly tells the agent what tool to reach for (closes Flaw 8: tool-rolodex blind spots) and what sequence works (closes Flaw 3: no prediction).
+- `[120] a "Save to playlist" → opens_modal` — agent knows to expect new elements, not navigation.
+- `[400] button "Select flight" → navigates_to /booking/passenger` — agent can verify URL change after pressing.
+
+Test: bench on the specific failure case (cursor-session-5a47ec04's privacy dropdown saga — 6 failed approaches before key-arrow-down worked). Decision rule: if the annotation reduces widget-thrash turn count on the canonical failure case AND doesn't false-positive on common buttons, ship. Same precision/recall discipline as the page-state-detector bench, applied per-effect-type.
+
 # Predicted-effect annotations on scan elements
 
 **Predicted change.** Annotate each scan entry (especially PRESS) with a heuristically-inferred effect — what's likely to happen if the agent activates this element. Strictly advisory, never breaking.
