@@ -6,3 +6,4 @@ tools/
 # per-worktree config (managed by cwt)
 .mcp.json
 .cwt-state/
+CLAUDE.local.md
