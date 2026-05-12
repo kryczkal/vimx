@@ -2,7 +2,7 @@
 created: 2026-05-11
 last_verified: 2026-05-11
 type: decision
-code_anchors: [src/cdp.ts]
+code_anchors: [src/index.ts]
 tags: [scanner, obscured-detection, hit-test]
 ---
 
@@ -20,4 +20,4 @@ tags: [scanner, obscured-detection, hit-test]
 
 **Connection to principle.** [Abstract mechanics, not goals](../principles/abstract-mechanics-not-goals.md). Obscuration detection is a web mechanic the tool owns; the agent never has to ask "is this clickable right now?"
 
-**Source.** Code: `src/cdp.ts` `getRect`. Benchmarks: session `f174aed7-6c77-485b-adee-7c2453ee3d51` (hit-test + scanner filter).
+**Source.** Code: `src/index.ts` `getRect`. Benchmarks: session `f174aed7-6c77-485b-adee-7c2453ee3d51` (hit-test + scanner filter).

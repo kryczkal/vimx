@@ -2,7 +2,6 @@ import CDP from "chrome-remote-interface";
 import { execSync, spawn } from "child_process";
 
 let activeClient: CDP.Client | null = null;
-let activeTabId: string | null = null;
 
 // ── Dialog handling ──
 // JS dialogs (alert/confirm/prompt/beforeunload) block all Runtime.evaluate
@@ -124,7 +123,6 @@ async function connectToTab(port: number): Promise<CDP.Client> {
     ?? targets.find(t => t.type === "page" && !t.url.startsWith("devtools://"));
   if (!page) throw new Error("No browser tab found.");
   const client = await CDP({ target: page, port });
-  activeTabId = page.id;
   await client.Runtime.enable();
   await client.Page.enable();
   setupDialogHandler(client);
@@ -140,7 +138,6 @@ export async function getClient(port: number): Promise<CDP.Client> {
     } catch {
       try { await activeClient.close(); } catch {}
       activeClient = null;
-      activeTabId = null;
     }
   }
 
@@ -174,7 +171,6 @@ export async function switchTab(port: number, tabId: string): Promise<void> {
     try { await activeClient.close(); } catch {}
   }
   activeClient = await CDP({ target: tabId, port });
-  activeTabId = tabId;
   await activeClient.Runtime.enable();
   await activeClient.Page.enable();
   setupDialogHandler(activeClient);
@@ -195,44 +191,6 @@ export async function evaluate(client: CDP.Client, expression: string): Promise<
   return result.result.value;
 }
 
-export interface FrameInfo {
-  frameId: string;
-  url: string;
-  name: string;
-  contextId?: number;
-  parentFrameId?: string;
-}
-
-interface FrameTreeNode {
-  frame: { id: string; url: string; name: string; parentId?: string };
-  childFrames?: FrameTreeNode[];
-}
-
-function flattenFrameTree(node: FrameTreeNode, out: FrameInfo[] = []): FrameInfo[] {
-  out.push({
-    frameId: node.frame.id,
-    url: node.frame.url,
-    name: node.frame.name,
-    parentFrameId: node.frame.parentId,
-  });
-  for (const child of node.childFrames || []) {
-    flattenFrameTree(child, out);
-  }
-  return out;
-}
-
-export async function getFrames(client: CDP.Client): Promise<FrameInfo[]> {
-  const { frameTree } = await client.Page.getFrameTree();
-  const frames = flattenFrameTree(frameTree as FrameTreeNode);
-
-  // Get execution contexts to map frames → contextIds
-  const { result: contexts } = await client.Runtime.evaluate({
-    expression: "1", returnByValue: true,
-  });
-
-  return frames;
-}
-
 export async function evaluateInFrame(
   client: CDP.Client,
   frameId: string,
@@ -242,7 +200,7 @@ export async function evaluateInFrame(
   const { executionContextId } = await client.Page.createIsolatedWorld({
     frameId,
     worldName: "webpilot-scanner",
-    grantUniveralAccess: true,
+    grantUniveralAccess: true, // CDP protocol typo — leave as-is
   });
 
   const result = await client.Runtime.evaluate({

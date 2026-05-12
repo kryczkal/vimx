@@ -913,11 +913,6 @@ export const RESOLVE_JS = `((query, affordanceFilter) => {
   return { error: "not_found", message: "No element matching '" + query + "'." };
 })`;
 
-// Returns { x, y } click coordinates for an element, or null if not found.
-export const GET_RECT_JS = `((id) => {
-  return window.__webpilotRects?.[id] ?? null;
-})`;
-
 // Check if element exists and is connected. Returns tag name or error.
 export const CHECK_JS = `((id) => {
   const el = window.__webpilot?.[id];
