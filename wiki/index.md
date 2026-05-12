@@ -12,6 +12,8 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 
 - [auto-rescan-after-mutation](decisions/auto-rescan-after-mutation.md) — every mutating tool returns a fresh scan inline.
 - [stateful-scan-with-region-dedup](decisions/stateful-scan-with-region-dedup.md) — `scan()` is stateful per URL path; emits dedup output when prior state exists; region tag attached to every entry.
+- [clear-via-dom-not-keyboard](decisions/clear-via-dom-not-keyboard.md) — `type(clear:true)` uses DOM value setter, not Ctrl+A keystroke (which never reached the editing-command handler via CDP). Root cause of the Forms shipped-broken case.
+- [anomaly-flag-action-returns](decisions/anomaly-flag-action-returns.md) — `type`/`toggle`/`select` return `isError` when observable outcome contradicts intent. Two-layer defense with the clearField fix.
 - [chrome-strip-removed](decisions/chrome-strip-removed.md) — `read()` returns full innerText; nav/footer/aside no longer stripped. Added then removed: benchmark-validated, principle-removed.
 - [hit-test-obscured-detection](decisions/hit-test-obscured-detection.md) — `elementFromPoint` in `getRect`; near-zero post-fix FP rate; names the obstructor in errors.
 - [observe-before-act-cdp-events](decisions/observe-before-act-cdp-events.md) — no defensive sleeps; CDP events drive sync; 29–43× `key()` speedup.
@@ -35,7 +37,7 @@ Ranked by expected leverage (highest first):
 
 1. [stateful-scan-chrome-dedup](hypotheses/stateful-scan-chrome-dedup.md) — diff repeated scans against page-state cache. **CONFIRMED** (2026-05-12): -83% idle, -89% post-action.
 2. [semantic-landmark-grouping](hypotheses/semantic-landmark-grouping.md) — group scan by ARIA landmarks / HTML5 sections. **Partially shipped** with #1 (region tags on every entry).
-3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — emit URL/title/h1/badge diffs after every mutating action.
+3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — **CONFIRMED 2026-05-12** as "tool refuses silent failure": anomaly heuristics on `type`/`toggle`/`select`. Bench surfaced & fixed the cdpSelectAll bug along the way.
 4. [find-query-tool](hypotheses/find-query-tool.md) — **REFUTED 2026-05-12**: prior `query` tool had this exact shape; agents made too-narrow semantic calls. The shape of a "natural-language query" API invites misuse regardless of implementation. See [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md).
 5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — heuristic `→ opens_modal` style hints on PRESS elements.
 6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — detect cookie banners, signin walls, captchas as named states.
@@ -50,6 +52,7 @@ Ranked by expected leverage (highest first):
 
 From `/benchmark` runs in claude-code dev sessions (2026-05-10 to 2026-05-12):
 
+- [2026-05-12 anomaly-flag action returns](benchmarks/2026-05-12-anomaly-flag-action-returns.md) — 4/4 PASS; surfaced & fixed the cdpSelectAll bug (real root cause of the Forms shipped-broken case).
 - [2026-05-12 stateful-scan dedup v1](benchmarks/2026-05-12-stateful-scan-dedup-v1.md) — 20 sites; -83% idle / -89% post-action scan output; 0 site failures; 1 noise-level regression.
 - [2026-05-12 region-detector B0](benchmarks/2026-05-12-region-detector-b0.md) — 20 sites; detector B (ARIA + position fallback) chosen; 100% coverage post-fix.
 - [2026-05-11 chrome-strip validated](benchmarks/2026-05-11-chrome-strip-validated.md) — 70 sites, 2.8% read() savings, zero regressions (feature later removed on principle).

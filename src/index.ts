@@ -686,14 +686,35 @@ async function cdpType(client: CDP.Client, text: string) {
   await client.Input.insertText({ text });
 }
 
-async function cdpSelectAll(client: CDP.Client) {
-  await client.Input.dispatchKeyEvent({ type: "keyDown", key: "a", code: "KeyA", modifiers: 8 });
-  await client.Input.dispatchKeyEvent({ type: "keyUp", key: "a", code: "KeyA", modifiers: 8 });
-}
-
-async function cdpBackspace(client: CDP.Client) {
-  await client.Input.dispatchKeyEvent({ type: "keyDown", key: "Backspace", code: "Backspace" });
-  await client.Input.dispatchKeyEvent({ type: "keyUp", key: "Backspace", code: "Backspace" });
+// Clear the focused element's value via direct DOM manipulation.
+//
+// Earlier we used cdpSelectAll (Ctrl+A keystroke) + cdpBackspace. That was
+// silently broken: CDP's Input.dispatchKeyEvent fires renderer-side DOM events
+// but doesn't trigger Chromium's browser-process editing-command handler, so
+// Ctrl+A never selected anything. The backspace then deleted one char,
+// cdpType.insertText appended the new text — net result, prior + typed
+// concatenated. This was the actual root cause of the Forms session 8bbfd98a
+// "Option AOption 1" shipped-broken case. Surfaced by anomaly-flag bench.
+//
+// Native value setter dispatched as input+change covers regular inputs,
+// textareas, and contenteditable. React/Vue controlled components respect
+// the setter call because we go through the prototype descriptor.
+async function clearField(client: CDP.Client, id: number) {
+  await evaluate(client, `(() => {
+    const el = window.__webpilot?.[${id}];
+    if (!el) return;
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+      const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setter) setter.call(el, "");
+      else el.value = "";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (el.isContentEditable) {
+      el.textContent = "";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  })()`);
 }
 
 const KEY_MAP: Record<string, { key: string; code: string }> = {
@@ -1012,9 +1033,16 @@ server.tool(
         if (el && document.activeElement !== el) el.focus();
       })()`);
 
+      // Snapshot prior value BEFORE clear/insert so we can detect a clear:true
+      // that didn't actually clear (Forms shipped-broken case: prior remained
+      // as suffix of new value, see post-ship session 8bbfd98a).
+      const priorValue = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        return (el?.value ?? el?.textContent ?? "").substring(0, 200);
+      })()`) as string;
+
       if (clear) {
-        await cdpSelectAll(client);
-        await cdpBackspace(client);
+        await clearField(client, id);
       }
 
       if (confirm) await startObserving(client);
@@ -1051,6 +1079,18 @@ server.tool(
         return targetVal;
       })()`) as string;
 
+      // Anomaly: clear:true was set but prior value remained as substring of
+      // new value AND new value is longer than typed text. Catches the Forms
+      // "Option AOption 1" case exactly. Safe vs idempotent re-types
+      // (new.length == text.length) and vs empty-prior fields.
+      if (clear && priorValue && readback.includes(priorValue) && readback.length > text.length) {
+        return aerr(
+          `type [${id}]: clear:true did not clear prior value '${priorValue.substring(0, 80)}' — ` +
+          `value is now '${readback.substring(0, 120)}' (typed '${text.substring(0, 60)}'). ` +
+          `Either the element doesn't support clear (custom input?) or clear:false is appropriate here.`
+        );
+      }
+
       return ok(`Typed into [${id}]. Value now: "${readback}"${confirm ? ` (confirmed with ${confirm})` : ""}${alertSuffix()}`);
     } catch (e) {
       return err(`Type failed: ${e instanceof Error ? e.message : e}`);
@@ -1079,6 +1119,14 @@ server.tool(
         ok?: boolean; error?: string; selected?: string; actual?: string;
       };
       if (result.error) return aerr(result.error);
+      // Anomaly: requested option didn't stick. SELECT_JS already extracts
+      // both — promote the existing info-readback to an error.
+      if (result.selected && result.actual && result.selected !== result.actual) {
+        return aerr(
+          `select [${id}]: requested '${result.selected}' but shown value is '${result.actual}' — selection did not stick. ` +
+          `The select may be a custom widget that needs press()+key() navigation.`
+        );
+      }
       return ok(`Selected "${result.selected}" on [${id}]. Showing: "${result.actual}"`);
     } catch (e) {
       return err(`Select failed: ${e instanceof Error ? e.message : e}`);
@@ -1104,6 +1152,15 @@ server.tool(
       if (!rect) return aerr("Element not found. Run scan first.");
       if (rect.obscured) return aerr(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
+      // Pre-state for anomaly check: if a toggle's state doesn't flip,
+      // the click landed on something that ignored it (disabled, managed
+      // elsewhere, radio that snapped back).
+      const preState = await evaluate(client, `(() => {
+        const el = window.__webpilot?.[${id}];
+        if (!el) return null;
+        return !!(el.checked ?? el.getAttribute("aria-checked") === "true");
+      })()`) as boolean | null;
+
       await cdpClick(client, rect.x, rect.y);
 
       const dr = dialogReturn(`Toggled [${id}].`);
@@ -1112,8 +1169,15 @@ server.tool(
       const state = await evaluate(client, `(() => {
         const el = window.__webpilot?.[${id}];
         if (!el) return { checked: false };
-        return { checked: el.checked ?? el.getAttribute("aria-checked") === "true" };
+        return { checked: !!(el.checked ?? el.getAttribute("aria-checked") === "true") };
       })()`) as { checked: boolean };
+
+      if (preState !== null && preState === state.checked) {
+        return aerr(
+          `toggle [${id}]: state did not change (was ${preState ? '✓ checked' : '○ unchecked'}, still is). ` +
+          `Element may be disabled, managed elsewhere, or a radio that snapped back.`
+        );
+      }
 
       return ok(`Toggled [${id}]. Now: ${state.checked ? "✓ checked" : "○ unchecked"}${alertSuffix()}`);
     } catch (e) {

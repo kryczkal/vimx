@@ -89,6 +89,30 @@ Two narrower follow-ups identified for the original "agents abandon webpilot for
 
 Calibration note: this is the cleanest refutation in the wiki so far — prior implementation experience trumped a hypothesis derived from session analysis. Worth bookmarking as evidence that owner-history is a first-class source alongside session data and benchmarks.
 
+## [2026-05-12] ship | anomaly-flag action returns + cdpSelectAll bug fix
+
+Bench-driven loop on hypothesis #3 (page-state-diff-in-action-returns), reframed to "tool refuses silent failure" — three anomaly heuristics across `type` / `toggle` / `select`. Bench: 4/4 PASS including 0 false positives on 8 real-site search-bar typings.
+
+**Bigger surprise**: the bench discovered `cdpSelectAll` had been silently broken since written. CDP modifier `8` is Shift, not Ctrl — `cdpSelectAll` dispatched `Shift+a` (capital A) instead of `Ctrl+A`. Every `type(clear:true)` on a non-empty field actually produced `prior + typed`. Agents never noticed because most types target empty search bars where `clear` is a no-op. **This was the actual root cause of the Forms session 8bbfd98a "Option AOption 1" shipped-broken case** — not a controlled-component edge case, just a webpilot bug.
+
+Fix: replaced `cdpSelectAll + cdpBackspace` with `clearField()` — DOM-side native value setter call dispatched as input+change. Works against controlled React/Vue components via prototype descriptor.
+
+Decisions made by data:
+- Anomaly heuristics: stayed in code as second layer of defense after the root-cause fix.
+- Heuristic shape (length-guard against false positives): validated by SYN-type-idempotent passing AND FP-sweep zero fires.
+
+Pages touched:
+- src/index.ts (clearField, aerr-based anomaly heuristics for type/toggle/select)
+- audit/anomaly-flag-bench.mts (new — synthetic + FP-sweep)
+- wiki/benchmarks/2026-05-12-anomaly-flag-action-returns.md (new)
+- wiki/decisions/clear-via-dom-not-keyboard.md (new — the cdpSelectAll bug arc)
+- wiki/decisions/anomaly-flag-action-returns.md (new)
+- wiki/hypotheses/page-state-diff-in-action-returns.md (status: open → confirmed; surprise note about cdpSelectAll)
+- wiki/index.md (this hypothesis confirmed; new decisions listed)
+- wiki/log.md (this entry)
+
+Calibration note: this is the second instance in the wiki where a hypothesis bench surfaced a deeper root-cause bug than the hypothesis itself addressed. The first was chrome-strip (which validated a feature that was then removed on principle). Pattern: bench discipline keeps finding things we didn't know to ask about.
+
 ## [2026-05-12] ship | nail-the-dedup post-ship refinements
 
 Post-ship session analysis (6 new cursor sessions) surfaced four structural edges in the v1 dedup that violated `abstract-mechanics-not-goals`. Three fixed cleanly, one investigated inconclusively, two correctness fixes shipped.

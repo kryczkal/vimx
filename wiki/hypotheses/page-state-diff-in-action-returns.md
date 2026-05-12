@@ -2,42 +2,75 @@
 created: 2026-05-12
 last_verified: 2026-05-12
 type: hypothesis
-status: open
-evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/verification-gap-after-actions.md, findings/agents-have-no-state-prediction.md]
-tags: [action-returns, verification]
+status: confirmed
+evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/verification-gap-after-actions.md, findings/agents-have-no-state-prediction.md, benchmarks/2026-05-12-anomaly-flag-action-returns.md]
+tags: [action-returns, verification, anomaly]
 ---
 
-# Page-state diff in action returns
+## Confirmed 2026-05-12
 
-**Predicted change.** After every mutating action (`press`, `type`, `toggle`, `select`, `key`), include a page-state diff: URL change, title change, h1 change, badge/count changes, modal open/close, focus shift. Currently we surface element-level deltas (`NEW:` block) but not page-state-level changes.
+Shipped — anomaly heuristics for `type` / `toggle` / `select`. Bench: 4/4 PASS, 0 false positives on 8 real sites. Decisions in [anomaly-flag-action-returns](../decisions/anomaly-flag-action-returns.md).
 
-**Mechanism.** Snapshot a small page-state object before and after each action:
+**Major surprise**: the bench surfaced that `cdpSelectAll` was silently broken (CDP modifier 8 = Shift, not Ctrl), meaning every `type(clear:true)` on a non-empty field actually produced `prior + typed`. This was the actual root cause of the Forms session 8bbfd98a "Option AOption 1" shipped-broken case. Fixed via DOM value-setter (`clearField`). See [clear-via-dom-not-keyboard](../decisions/clear-via-dom-not-keyboard.md).
+
+The anomaly heuristic remains as a second layer of defense after the root-cause fix.
+
+# Anomaly flagging in action returns
+
+**Reframed 2026-05-12** (was: "Page-state diff in action returns"). Post-ship session 8bbfd98a showed: just *displaying* state diffs to the agent isn't enough — the agent saw `value="Option AOption 1"` in the `← changed` line and shipped a broken form anyway. The verification gap (Flaw 6) is downstream of how the agent processes info, not what info is shown.
+
+The reframed principle: **the tool refuses silent failure**. When an action's observable outcome contradicts the action's intent, the response is `isError: true`, not a value readback. Agents can't pattern-match-and-ignore an error result the way they pattern-matched-and-ignored a status string.
+
+## Concrete heuristics (narrow scope, full quality)
+
+Three mutating actions, three different anomaly tests:
+
+### type()
+Capture `prior_value` before any clear/insert. After the type completes, compare `new_value` to `prior_value` and the typed `text`. Anomaly when:
+
 ```
-{
-  url, title, h1_text, modal_present, focused_element,
-  badge_counts: { cart: 2, notifications: 0, ... }   // ARIA-derived where possible
-}
-```
-Diff and emit non-empty changes:
-```
-Pressed [400] "Select flight".
-State changes:
-  URL: /flights?... → /booking/passenger
-  Title: "Choose a flight" → "Passenger details"
-  Heading: "Choose a flight" → "Tell us about you"
-
-NEW:
-  [29] input[text] "First name"
-  ...
+clear=true AND prior_value != "" AND new_value.includes(prior_value)
+                                AND new_value.length > text.length
 ```
 
-**Predicted outcome.** Near-zero "did my action work?" reasoning in agent thinking. Agents start chaining actions confidently because they can verify each step in O(1) tokens. Closes the deepest part of the verification gap.
+This catches the Forms case exactly: `prior="Option 1"`, `typed="Option A"`, `new="Option AOption 1"`. `clear:true` was set but the prior content remained. Returns:
 
-**How to test.**
-1. Implement against a fixed set of tasks where verification failures are documented (e.g. session 5a47ec04's "either removed or not" moment).
-2. Re-run, look for the agent now explicitly noting state changes in its reasoning.
-3. Confirm: fewer uncertain-outcome statements in agent thinking; fewer redundant re-scans to confirm action effects; the silent-redirect cases (session a1775a65) get caught.
+```
+clear:true did not clear prior value 'Option 1' — value is now 'Option AOption 1' (typed 'Option A')
+```
 
-**Risk.** Badge/count heuristics are fragile and site-specific. Mitigation: start with the unambiguous signals (URL, title, h1) and add badge tracking via ARIA `aria-live` regions / `role="status"`, which are well-specified.
+False-positive safety: requires `new.length > text.length`. An idempotent re-type (`prior="abc"`, `typed="abc"`, `new="abc"`) doesn't fire. An autocomplete extension where `prior=""` doesn't fire (no prior to detect). A type that genuinely extends content (`prior="abc"`, `typed="abcd"`) doesn't fire because `new.length == text.length`.
 
-**Source.** Pushback 6 in pass 2 of [the 2026-05-12 session analysis](../sessions/2026-05-12-cursor-export-17-sessions.md). One of the two changes recommended to build first.
+### toggle()
+Pre-state and post-state are already extracted. Anomaly when:
+
+```
+pre_checked == post_checked   // toggle did nothing
+```
+
+Today this returns a readback; promoted to error. Real cases this catches: pressing a radio in a group that auto-reverts; toggling a disabled control; toggling something whose state is managed elsewhere and snaps back.
+
+### select()
+Already extracts both `selected` (requested) and `actual` (shown). Today returns OK with the discrepancy in the readback. Anomaly when:
+
+```
+result.selected != result.actual
+```
+
+## How to test
+
+1. **Forms regression** — synthetic test: navigate to a typeable element with known prior value (via `evaluate` to set it). Call `type` with `clear=true` but use page-side JS to *append* instead of replace (simulating the bug). Verify the heuristic fires.
+2. **False-positive sweep** — drive normal type/toggle/select on 10-15 real sites (Google search, GitHub, Reddit, Wikipedia search, Amazon, etc.). Count fires. Decision rule: **zero false positives** on common interactions, or the heuristic stays unshipped.
+3. **Integrated session re-run** — replay session 8bbfd98a's Forms task on the post-ship build; verify the Option AOption typing trip would have errored out where it didn't before.
+
+## Predicted outcome
+
+Forms-style "shipped broken" failures become impossible: the type call returns an error, agent retries, breaks the loop. Verification gap (Flaw 6) closes for the three actions that account for ~80% of state-mutating calls in sessions.
+
+## Risk
+
+False positives could derail legitimate flows (autocomplete extensions, masked inputs, instant-formatting fields). Heuristic guards above limit the surface. Bench step #2 is the gate before ship.
+
+## Source
+
+Pushback 6 in pass 2 of [the 2026-05-12 session analysis](../sessions/2026-05-12-cursor-export-17-sessions.md). Reframed from "show diffs" to "refuse silent failure" after evidence in [post-ship-dedup-edges](../findings/post-ship-dedup-edges.md) and the Forms shipped-broken case (cursor-session-8bbfd98a).
