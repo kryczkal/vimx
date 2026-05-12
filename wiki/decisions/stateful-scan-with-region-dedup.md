@@ -45,3 +45,14 @@ This is `affordance-grouping-over-dom-hierarchy` and `abstract-mechanics-not-goa
 - **Always emit full** (current legacy behavior). Rejected by 20-site benchmark: 83-89% token savings is too large to leave on the table.
 
 **Source.** Shipped 2026-05-12. Default-on via `WEBPILOT_SCAN_DEDUP=1` (default); disable for A/B testing via `=0`. Benchmark scripts: `audit/region-detector-b0.mts`, `audit/dedup-v1-bench.mts`.
+
+## Post-ship refinements (2026-05-12)
+
+See [post-ship-dedup-edges](../findings/post-ship-dedup-edges.md) for the full story. Four structural edges discovered in real sessions, four shipped fixes:
+
+- **(a) Full-elision wording**: now `"No changes since last scan. N elements (ids ...) still current — act on what you saw."` instead of `"(unchanged since last scan, ids: ...)"`. Defensive-rescan rate was 6/10 in 8bbfd98a — wording change addresses the "tool is withholding" misread.
+- **(b) Error-state bypass**: action errors (obscured, not-found, stale) set a `nextScanForceFresh` flag via `aerr()`. Next scan emits full so the agent has labels for diagnosis.
+- **(c) Regions as disambiguator, not decoration**: per-entry `[region]` suffix dropped (was ignored by agents, cost ~10% cold-scan). Region promoted to scanner-side disambiguator — `"Save in nav"` / `"Save in main"` when duplicate labels span regions, falling back to position `(1)/(2)` only when regions don't differ. Saves -8.2% on cold scans (audit/dedup-v1-bench.mts re-run).
+- **(d) Region stability**: assignment pinned via WeakMap `__wpRegionMap` so the same DOM node keeps the same region across rescans (fixes `[search]` ↔ `[header]` flips observed in 85a6ca6c).
+- **(f) Cache key includes querystring**: `origin + pathname + search` (was path-only). False dedup confirmed on SPA state changes; see [cache-key-investigation benchmark](../benchmarks/2026-05-12-cache-key-investigation.md).
+- **(e) Mutation race**: probed, inconclusive. The "defensive rescan storm" symptom is more plausibly explained by (a) than a timing race. Revisit in next session round if (a) doesn't help.

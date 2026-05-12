@@ -68,6 +68,31 @@ Lesson for future ingests: grep hit counts are a *sampling tool*, not a *load co
 
 The viewport-bound scan decision is not arbitrary — it's backed by hard measurement (99 sites, ~7× per-session token cost difference). Worth remembering when future hypotheses propose surfacing more in scan: the cost ceiling is real and was paid for in benchmark time. Conversely, the chrome-strip arc is the inverse — a benchmark that *cleanly validated* a change still got the change removed on principle. Both directions matter when interpreting future ingests.
 
+## [2026-05-12] ship | nail-the-dedup post-ship refinements
+
+Post-ship session analysis (6 new cursor sessions) surfaced four structural edges in the v1 dedup that violated `abstract-mechanics-not-goals`. Three fixed cleanly, one investigated inconclusively, two correctness fixes shipped.
+
+Decisions made by data, not opinion:
+- **(a)** Full-elision wording: `"No changes since last scan. ... still current — act on what you saw"` replaces the misread-prone `"(unchanged since last scan, ids: ...)"`. Targeted at the 6/10 defensive-rescan rate seen in 8bbfd98a.
+- **(b)** Error-state bypass via `aerr()` helper sets `nextScanForceFresh`. Verified by smoke test (press[bad id] → next scan emits full, not dedup).
+- **(c)** Per-entry `[region]` suffix dropped; promoted to disambiguator. Re-bench: cold-scan dropped 5503 → 5050 chars (-8.2%). Regions now load-bearing only when they actually differentiate.
+- **(d)** Region stability via `__wpRegionMap` WeakMap.
+- **(e)** Mutation race: probed across 3 sites, targets produced 0 mutations in 750ms — couldn't reproduce. Marked inconclusive; the symptom is probably (a)'s problem in disguise.
+- **(f)** Cache key now `origin + pathname + search`. Confirmed false dedup on Google Flights `?q` state via side-channel CDP test; verified fix re-running the same test.
+
+Pages touched:
+- src/scanner.ts (region disambig strategy, WeakMap, frame-element guard tweaks)
+- src/index.ts (wording, aerr+forceFresh, fmtEntry without region, urlPathKey+search)
+- audit/cache-key-investigation.mts (new, /ship-by-bench style: hypothesis → measure → fix → verify)
+- audit/mutation-race-investigation.mts (new, inconclusive result documented)
+- audit/data/cache-key-investigation/findings.txt (new)
+- wiki/benchmarks/2026-05-12-cache-key-investigation.md (new)
+- wiki/findings/post-ship-dedup-edges.md (new — A through F catalog)
+- wiki/decisions/stateful-scan-with-region-dedup.md (updated — Post-ship refinements section)
+- wiki/log.md (this entry)
+
+Process note: the (c) presentation cycle — show real before/after on session data, get user OK, then ship + bench — is exactly the `/ship-by-bench` loop the skill encodes. Worked: 0 surprises in the re-bench.
+
 ## [2026-05-12] ship | stateful-scan-chrome-dedup v1
 
 Shipped the hypothesis. Two benchmarks decided the design, one validated the ship.

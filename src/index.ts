@@ -65,10 +65,18 @@ const scanCache = new Map<string, ScanState>();
 let nextScanForceFresh = false;
 function markActionError(): void { if (SCAN_DEDUP) nextScanForceFresh = true; }
 
+// Cache key includes querystring after (f) investigation 2026-05-12:
+// path-only keying caused false dedup on Google Flights ?q=SFO vs ?q=NYC
+// (audit/data/cache-key-investigation/). For SPAs the querystring IS
+// state. Fragment dropped — typically client-only state, doesn't change
+// scan-visible affordances.
+//
+// Cost: cache miss on URLs that differ only in tracking params (e.g.
+// ?ref=abc). Acceptable — those URLs rarely repeat per-session anyway.
 function urlPathKey(url: string): string {
   try {
     const u = new URL(url);
-    return u.origin + u.pathname;
+    return u.origin + u.pathname + u.search;
   } catch {
     return url;
   }
