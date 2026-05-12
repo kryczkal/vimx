@@ -94,26 +94,27 @@ function dedupEntries(entries: ScanEntry[]): ScanEntry[] {
   });
 }
 function fmtEntry(aff: string, e: ScanEntry): string {
-  const reg = e.region ? ` [${e.region}]` : "";
+  // Post-(c): no per-entry region suffix; regions promoted to scanner-side
+  // disambiguator + dedup summary line only.
   if (aff === "PRESS") {
     const href = e.href ? ` → ${cleanHref(e.href)}` : "";
-    return `  [${e.id}] ${e.tag} "${e.label}"${href}${reg}`;
+    return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
   }
   if (aff === "TYPE") {
     const val = e.value ? ` value="${e.value}"` : "";
     const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
-    return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"${reg}`;
+    return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"`;
   }
   if (aff === "TOGGLE") {
     const state = e.checked ? "✓" : "○";
-    return `  [${e.id}] ${e.tag} "${e.label}" ${state}${reg}`;
+    return `  [${e.id}] ${e.tag} "${e.label}" ${state}`;
   }
   if (aff === "SELECT") {
     const opts = e.options?.join(", ") || "";
-    return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]${reg}`;
+    return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`;
   }
-  if (aff === "UPLOAD") return `  [${e.id}] input[file] "${e.label}"${reg}`;
-  return `  [${e.id}] ${e.tag} "${e.label}"${reg}`;
+  if (aff === "UPLOAD") return `  [${e.id}] input[file] "${e.label}"`;
+  return `  [${e.id}] ${e.tag} "${e.label}"`;
 }
 const HEADERS: Record<string, string> = {
   PRESS: "PRESS → press(element)",
@@ -237,7 +238,7 @@ function formatDedup(scan: ScanResult, prev: ScanState): string {
       const summaries: string[] = [];
       for (const reg of sortedRegs) {
         const ids = byRegion.get(reg)!;
-        const display = reg === "_unassigned" ? "?" : reg;
+        const display = reg === "_unassigned" ? "other" : reg;
         summaries.push(`${display}: ${ids.length} (${compactIds(ids)})`);
       }
       lines.push(`  Unchanged — ${summaries.join(" · ")}`);

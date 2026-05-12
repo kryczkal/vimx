@@ -185,29 +185,35 @@ function cleanHref(href: string): string {
 
 // Per-entry formatter. Same shape for full and dedup output so the agent
 // never sees different schemas — only differences in WHICH entries appear.
+//
+// (c) Regions no longer broadcast on every entry. Regions are now load-bearing
+// only when (1) used by the scanner's disambiguator to suffix conflicting
+// labels ("Save in nav" vs "Save in main"), or (2) summarized in the dedup
+// "Unchanged — header: 7 · main: 18 · ..." line. Per-entry region tags
+// were emitted on every entry in v1 but zero agent thinking traces across
+// 5 post-ship sessions reasoned about them. Saves ~7-10% cold-scan tokens.
 function fmtEntry(aff: string, e: ScanEntry): string {
-  const reg = e.region ? ` [${e.region}]` : "";
   if (aff === "PRESS") {
     const href = e.href ? ` → ${cleanHref(e.href)}` : "";
-    return `  [${e.id}] ${e.tag} "${e.label}"${href}${reg}`;
+    return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
   }
   if (aff === "TYPE") {
     const val = e.value ? ` value="${e.value}"` : "";
     const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
-    return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"${reg}`;
+    return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"`;
   }
   if (aff === "SELECT") {
     const opts = e.options?.join(", ") || "";
-    return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]${reg}`;
+    return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`;
   }
   if (aff === "TOGGLE") {
     const state = e.checked ? "✓" : "○";
-    return `  [${e.id}] ${e.tag} "${e.label}" ${state}${reg}`;
+    return `  [${e.id}] ${e.tag} "${e.label}" ${state}`;
   }
   if (aff === "UPLOAD") {
-    return `  [${e.id}] input[file] "${e.label}"${reg}`;
+    return `  [${e.id}] input[file] "${e.label}"`;
   }
-  return `  [${e.id}] ${e.tag} "${e.label}"${reg}`;
+  return `  [${e.id}] ${e.tag} "${e.label}"`;
 }
 
 const AFFORDANCE_HEADERS: Record<string, string> = {
@@ -359,7 +365,7 @@ function formatScanResultDedup(scan: ScanResult, prev: ScanState): string {
       });
       for (const reg of sortedRegs) {
         const ids = byRegion.get(reg)!;
-        const display = reg === "_unassigned" ? "?" : reg;
+        const display = reg === "_unassigned" ? "other" : reg;
         regSummaries.push(`${display}: ${ids.length} (${compactIds(ids)})`);
       }
       lines.push(`  Unchanged — ${regSummaries.join(" · ")}`);

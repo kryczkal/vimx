@@ -796,6 +796,26 @@ export const SCANNER_JS = `(() => {
       }
       if (resolved) continue;
 
+      // Strategy 1.5: region disambiguation.
+      // If dupes span distinct semantic regions (e.g. "Save" in [nav] vs
+      // [main]), region carries more meaning than position "(1)/(2)".
+      // Promotes region from per-entry decoration (which agents ignored
+      // per post-ship session evidence) to load-bearing disambiguator.
+      var regs = dupes.map(function(d) { return d.region; });
+      var regSet = {};
+      var regsOK = true;
+      for (var ri = 0; ri < regs.length; ri++) {
+        if (!regs[ri]) { regsOK = false; break; }
+        regSet[regs[ri]] = (regSet[regs[ri]] || 0) + 1;
+      }
+      if (regsOK && Object.keys(regSet).length === dupes.length) {
+        for (var di = 0; di < dupes.length; di++) {
+          dupes[di].label = label + " in " + dupes[di].region;
+          window.__webpilotLabels[dupes[di].id] = dupes[di].label;
+        }
+        continue;
+      }
+
       // Strategy 2: href segment diff
       const hrefList = dupes.map(d => d.href || "");
       if (hrefList.some(Boolean)) {
