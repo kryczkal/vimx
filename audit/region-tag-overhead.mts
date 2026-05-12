@@ -7,6 +7,8 @@ import { resolve as resolvePath, dirname } from "path";
 import { fileURLToPath } from "url";
 import { SCANNER_JS } from "../src/scanner.ts";
 
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SITES = [
@@ -87,7 +89,7 @@ function format(scan: ScanResult, withRegion: boolean): string {
   return lines.join("\n");
 }
 
-const c = await CDP({ port: 9222 });
+const c = await CDP({ port: CDP_PORT });
 const { Page, Runtime } = c;
 await Promise.all([Page.enable(), Runtime.enable()]);
 

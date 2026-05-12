@@ -20,6 +20,8 @@ import { resolve as resolvePath, dirname } from "path";
 import { fileURLToPath } from "url";
 import { SCANNER_JS } from "../src/scanner.ts";
 
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolvePath(__dirname, "data/dedup-v1");
 mkdirSync(OUT_DIR, { recursive: true });
@@ -250,7 +252,7 @@ function formatDedup(scan: ScanResult, prev: ScanState): string {
 
 // ── Runner ──
 
-const client = await CDP({ port: 9222 });
+const client = await CDP({ port: CDP_PORT });
 const { Page, Runtime } = client;
 await Promise.all([Page.enable(), Runtime.enable()]);
 process.setMaxListeners(200);

@@ -20,13 +20,15 @@
 
 import { spawn } from "child_process";
 
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
 interface ToolResult { id: number; text: string; isError: boolean }
 
 class MCPClient {
   proc; buf = ""; pending = new Map<number, (r: ToolResult) => void>(); id = 1;
   constructor() {
     this.proc = spawn("node", ["dist/index.js"], {
-      env: { ...process.env, CDP_PORT: "9222" },
+      env: { ...process.env},
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.proc.stdout!.on("data", (d: Buffer) => {
@@ -71,7 +73,7 @@ function elementCount(text: string): number {
 
 async function main() {
   const CDP = (await import("chrome-remote-interface")).default;
-  const sideClient = await CDP({ port: 9222 });
+  const sideClient = await CDP({ port: CDP_PORT });
   await Promise.all([sideClient.Page.enable(), sideClient.Runtime.enable()]);
 
   const mcp = new MCPClient();

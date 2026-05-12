@@ -14,6 +14,8 @@
 
 import CDP from "chrome-remote-interface";
 
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
 interface ScanEntry { id: number; tag: string; label: string; region?: string }
 interface ScanResult { url: string; title: string; groups: Record<string, ScanEntry[]>; total: number }
 
@@ -42,7 +44,7 @@ const READ_MUT = `(() => ({
   now: performance.now(),
 }))()`;
 
-const client = await CDP({ port: 9222 });
+const client = await CDP({ port: CDP_PORT });
 const { Page, Runtime, Input } = client;
 await Promise.all([Page.enable(), Runtime.enable()]);
 

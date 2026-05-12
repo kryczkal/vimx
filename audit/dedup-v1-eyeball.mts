@@ -4,9 +4,11 @@
 import CDP from "chrome-remote-interface";
 import { SCANNER_JS } from "../src/scanner.ts";
 
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
 const URL = process.argv[2] || "https://en.wikipedia.org/wiki/Cat";
 
-const client = await CDP({ port: 9222 });
+const client = await CDP({ port: CDP_PORT });
 const { Page, Runtime } = client;
 await Promise.all([Page.enable(), Runtime.enable()]);
 

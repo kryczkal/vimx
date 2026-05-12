@@ -1,7 +1,9 @@
 import CDP from "chrome-remote-interface";
 import { SCANNER_JS } from "../src/scanner.ts";
 
-const c = await CDP({ port: 9222 });
+const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+
+const c = await CDP({ port: CDP_PORT });
 const { Page, Runtime } = c;
 await Promise.all([Page.enable(), Runtime.enable()]);
 
