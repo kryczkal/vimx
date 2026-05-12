@@ -33,3 +33,11 @@ CDP_PORT=9222 node dist/index.js          # production
 - Auto re-scan after mutations so agent always has fresh state
 - Element references stored in `window.__webpilot[]` — direct object refs, no fragile selectors
 - Scanner derived from Vimium's battle-tested detection heuristics (visibility, clickability, false positive filtering, overlap detection)
+
+## Wiki
+
+`wiki/` accumulates project knowledge across hypotheses, sessions, benchmarks, findings, decisions, and principles. The schema and operating manual is `wiki/CLAUDE.md`; the general pattern is `wiki/IDEA.md`. Workflows:
+
+- `/wiki-ingest <source>` — file a new artifact (file path, claude-code session UUID, or `benchmark` to discover unprocessed `/benchmark` runs)
+- `/wiki-query <question>` — ask the accumulated knowledge a question
+- `/wiki-lint` — periodic health check (stale pages, broken code_anchors, orphans, contradictions)
