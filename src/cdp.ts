@@ -1,5 +1,8 @@
 import CDP from "chrome-remote-interface";
 import { execSync, spawn } from "child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let activeClient: CDP.Client | null = null;
 
@@ -107,6 +110,92 @@ export async function ensureBrowser(port: number): Promise<void> {
     launchChrome(port);
   }
   await waitForCDP(port);
+}
+
+// ── Server boot ──
+// One MCP server process == one browser. Three branches:
+//   1. CDP_TARGET set: attach to a remote websocket. Caller manages lifetime.
+//   2. CDP_PORT set: attach to a local Chrome on that port. Started outside
+//      this process (e.g. scripts/dev-chrome.sh), so we don't kill it.
+//   3. neither set: spawn a fresh headed chromium on an OS-assigned port with
+//      a fresh /tmp profile. Lifetime tied to MCP server — shutdown() kills
+//      the process and wipes the profile.
+//
+// TODO (headless future): under SIGKILL the spawned chromium becomes an
+// orphan. With a visible window the user can close it manually; once we
+// support headless that won't be possible. Fix is a startup sweep of
+// /tmp/webpilot-mcp-* dirs whose PID file points at a dead PID.
+
+export interface BrowserHandle {
+  port: number;
+  shutdown: () => void;
+}
+
+async function readActivePort(profile: string, timeoutMs = 10_000): Promise<number> {
+  const path = join(profile, "DevToolsActivePort");
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const content = readFileSync(path, "utf8");
+      const firstLine = content.split("\n")[0]?.trim() ?? "";
+      const port = parseInt(firstLine, 10);
+      if (port > 0) return port;
+    } catch {
+      // not written yet
+    }
+    await sleep(100);
+  }
+  throw new Error(`Chromium did not write DevToolsActivePort at ${path} within ${timeoutMs}ms`);
+}
+
+export async function startBrowser(): Promise<BrowserHandle> {
+  if (CDP_TARGET) {
+    return { port: 0, shutdown: () => {} };
+  }
+
+  const fixedPortEnv = process.env.CDP_PORT;
+  if (fixedPortEnv) {
+    const port = parseInt(fixedPortEnv, 10);
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new Error(`Invalid CDP_PORT='${fixedPortEnv}'`);
+    }
+    await ensureBrowser(port);
+    return { port, shutdown: () => {} };
+  }
+
+  const profile = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+  // detached:true puts chromium in its own process group so we can SIGKILL the
+  // whole group (parent + zygote + renderers + gpu-process + …) in one syscall
+  // via process.kill(-pid). Without that, killing only the parent leaves child
+  // chromium procs holding profile files open, and the immediately-following
+  // rmSync races them and partial-fails.
+  const child = spawn("chromium", [
+    "--remote-debugging-port=0",
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ], { detached: true, stdio: "ignore" });
+  child.unref();
+
+  let killed = false;
+  const shutdown = () => {
+    if (killed) return;
+    killed = true;
+    if (child.pid) {
+      // Negative pid = process group. SIGKILL because the profile is
+      // ephemeral; we don't owe chromium a graceful exit.
+      try { process.kill(-child.pid, "SIGKILL"); } catch {}
+    }
+    try { rmSync(profile, { recursive: true, force: true }); } catch {}
+  };
+
+  try {
+    const port = await readActivePort(profile);
+    return { port, shutdown };
+  } catch (e) {
+    shutdown();
+    throw e;
+  }
 }
 
 async function connectToTab(port: number): Promise<CDP.Client> {

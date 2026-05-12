@@ -6,11 +6,11 @@ import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
   handlePendingDialog, onDialog, startObserving, waitForSettle,
-  waitForLoadingIndicators,
+  waitForLoadingIndicators, startBrowser,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+const { port: CDP_PORT, shutdown: shutdownBrowser } = await startBrowser();
 const HIGHLIGHT = !["", "0", "false"].includes((process.env.WEBPILOT_HIGHLIGHT ?? "").toLowerCase());
 
 function highlight(client: CDP.Client, id: number): void {
@@ -1575,6 +1575,24 @@ server.tool(
     }
   }),
 );
+
+// Kill the auto-spawned chromium when this MCP server exits. Idempotent
+// via the killed guard inside shutdownBrowser. Stdin 'end' covers the
+// graceful Cursor-closed-the-pipe case; signals cover the rest. process.exit()
+// in the trampoline runs 'exit' listeners synchronously, which is what
+// actually fires shutdownBrowser when the process is going down.
+let shuttingDown = false;
+function shutdown(code = 0): never {
+  if (shuttingDown) process.exit(code);
+  shuttingDown = true;
+  try { shutdownBrowser(); } catch {}
+  process.exit(code);
+}
+process.on("SIGINT", () => shutdown(130));
+process.on("SIGTERM", () => shutdown(143));
+process.on("SIGHUP", () => shutdown(129));
+process.stdin.on("end", () => shutdown(0));
+process.on("exit", () => { try { shutdownBrowser(); } catch {} });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
