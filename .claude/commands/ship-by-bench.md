@@ -18,7 +18,7 @@ The webpilot loop. Frame the work as a stack of decisions; benchmark each non-tr
 
 6. **File the benchmark at the moment of decision.** `wiki/benchmarks/YYYY-MM-DD-<slug>.md` — frontmatter, per-site table, the decision the data drove, raw data path (`audit/data/<slug>/`). Frozen on creation; never edit later, file a follow-up instead. Link from the hypothesis page's `evidence:`.
 
-7. **Implement the minimum viable version.** Build only what's decided. In code, comment each decision with the benchmark it traces to (`see audit/data/<slug>/`).
+7. **Implement only what's decided — to the quality bar of the rest of the codebase.** "Narrow in scope, full in quality." Don't generalize speculatively (features the bench hasn't picked are future hypotheses, not unimplemented TODOs). Don't cut corners on the chosen path either — error handling, edge cases, comments, tests at the codebase's existing bar. Each shipped piece should stand alone as production-grade for its scope. In code, comment each decision with the benchmark it traces to (`see audit/data/<slug>/`).
 
 8. **Validate the integrated ship.** Same site set, before vs after; per-site regression check. Noise-level regressions on tiny pages aren't blockers; small regressions on high-traffic shapes are. If surprises surface, iterate (bench → fix → bench) — each iteration gets its own benchmark page. **Common trap: the standalone-tested detector behaves differently when wired in. Always re-bench the integrated path.** File a v1 validation benchmark.
 
@@ -55,7 +55,10 @@ The webpilot loop. Frame the work as a stack of decisions; benchmark each non-tr
 - **Trusting the standalone bench result.** The integrated path can regress in ways the isolated detector can't — run a `quick-regression`-style check after wiring in.
 - **Burying deferred follow-ups in commit messages.** File as `status: open` hypotheses.
 - **Editing a decision in place when its code changes.** Add a new decision and link forward; the chrome-strip arc (added → benchmark-validated → removed on principle) is the canonical example.
+- **Reading "narrow in scope" as "cut corners on the chosen path."** Narrow means: skip features the bench hasn't justified. It does NOT mean: skip error handling, edge cases, or comments on the code you ARE shipping. Each piece should stand on its own at the codebase's existing quality bar — otherwise the accumulation becomes the set-of-MVPs failure mode.
 
 ## Philosophy
 
-webpilot is a 3k-LOC tool. Architecturally clean means every decision in the code traces to a measurement, not an opinion. The wiki is the project's working memory — if work happens outside it, it didn't happen. If data has no wiki page, it doesn't exist for the next iteration. Build less, measure more, document at the moment of decision, link everything. Real sites are the ground truth.
+webpilot is a 3k-LOC tool. Architecturally clean means every decision in the code traces to a measurement, not an opinion. "Narrow in scope, full in quality" is the rule — not "minimum viable." The two failure modes to avoid are *over-building speculative features the bench hasn't justified* and *under-building the path the bench did pick*. The wiki + bench discipline is what keeps the accumulation coherent: linked decisions, traceable evidence, deferred work filed as hypotheses, principles surviving pivots. Without that cohesion mechanism, lots of small ships compound into a junk drawer. With it, they compound into a clean architecture that emerged from what was actually measured to matter.
+
+If work happens outside the wiki, it didn't happen. If data has no wiki page, it doesn't exist for the next iteration. Real sites are the ground truth.
