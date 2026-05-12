@@ -884,7 +884,13 @@ export const HIGHLIGHT_JS = `((id) => {
 // URL fragments with no preceding text to anchor them).
 //
 // Multi-root preserved (catches portal-rendered modals like LinkedIn compose).
-// Chrome-strip and root-selection edge cases are separate follow-ups.
+//
+// No chrome stripping: a 100+ site audit found that tag-based stripping of
+// nav/footer/aside leaked article-internal content (dated <aside> cards on
+// Congress.gov, promo blurbs in <aside> on eBay, article <footer> bylines per
+// HTML5). Token cost of including page chrome (typically 5-15%) is acceptable
+// vs silent content loss. Don't reintroduce tag-based strip — see
+// audit/data/chrome-strip for the canary cases.
 export const READ_JS = `(() => {
   const roots = [];
   const main = document.querySelector("main, article, [role=main]");
@@ -901,20 +907,6 @@ export const READ_JS = `(() => {
   } else {
     roots.push(document.body);
   }
-
-  // Chrome strip: hide <nav>/<footer>/<aside> + ARIA equivalents via injected
-  // style, capture innerText, remove the style. Done in the live DOM (cloned
-  // elements don't render, so cloneNode + innerText returns textContent-ish
-  // garbage — measured on Wikipedia/JavaScript clone returned 0 chars).
-  //
-  // <header> intentionally NOT stripped: Wikipedia and many news sites put the
-  // article title inside <header>, so the aggressive variant lost titles in
-  // the 25-site probe. nav/footer/aside is the conservative slice that wins
-  // on Wikipedia (article tab strip + language list gone) without regressing
-  // anywhere.
-  const stripStyle = document.createElement("style");
-  stripStyle.textContent = 'nav, footer, aside, [role="navigation"], [role="contentinfo"], [role="complementary"] { display: none !important; }';
-  document.head.appendChild(stripStyle);
 
   const anchorMods = [];
   let md;
@@ -945,7 +937,6 @@ export const READ_JS = `(() => {
     }
     md = roots.map(r => r.innerText || "").join("\\n\\n").trim();
   } finally {
-    stripStyle.remove();
     for (const node of anchorMods) node.remove();
   }
 
