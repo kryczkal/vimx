@@ -6,12 +6,12 @@ import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
   handlePendingDialog, onDialog, startObserving, waitForSettle,
-  waitForLoadingIndicators,
+  waitForLoadingIndicators, startBrowser,
   type FrameInfo,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, GET_RECT_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
+const { port: CDP_PORT, shutdown: shutdownBrowser } = await startBrowser();
 const HIGHLIGHT = !["", "0", "false"].includes((process.env.WEBPILOT_HIGHLIGHT ?? "").toLowerCase());
 
 function highlight(client: CDP.Client, id: number): void {
@@ -925,8 +925,6 @@ const elementRef = z.union([
   z.string().describe("Element label text (matched against scan labels)"),
 ]);
 
-const browserRef = z.string().optional().describe("Browser session ID from new_browser. Omit for default browser.");
-
 // ── Server ──
 
 const server = new McpServer({
@@ -937,8 +935,8 @@ const server = new McpServer({
 server.tool(
   "scan",
   "Scan the current page for all interactive elements, grouped by affordance (PRESS, TYPE, SELECT, TOGGLE). Returns element IDs you can use with press/type/select/toggle tools. Call this first before interacting with any page.",
-  { browser: browserRef },
-  async ({ browser }) => {
+  {},
+  async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -952,8 +950,8 @@ server.tool(
 server.tool(
   "press",
   "Press a button, click a link, or activate a pressable element. Accepts element id (number) or label text (string).",
-  { element: elementRef.describe("Element ID or label text"), browser: browserRef },
-  async ({ element, browser }) => serialized(async () => {
+  { element: elementRef.describe("Element ID or label text")},
+  async ({ element }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1012,9 +1010,8 @@ server.tool(
     text: z.string().describe("Text to type into the element"),
     clear: z.boolean().optional().default(true).describe("Clear existing value first (default: true)"),
     confirm: z.string().optional().describe("Key to press after typing to confirm (enter, tab, escape). Use for autocomplete fields."),
-    browser: browserRef,
   },
-  async ({ element, text, clear, confirm, browser }) => serialized(async () => {
+  async ({ element, text, clear, confirm }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1104,9 +1101,8 @@ server.tool(
   {
     element: elementRef.describe("Element ID or label text"),
     value: z.string().describe("Option text or value to select"),
-    browser: browserRef,
   },
-  async ({ element, value, browser }) => serialized(async () => {
+  async ({ element, value }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1137,8 +1133,8 @@ server.tool(
 server.tool(
   "toggle",
   "Toggle a checkbox, radio button, or switch. Accepts element id (number) or label text (string).",
-  { element: elementRef.describe("Element ID or label text"), browser: browserRef },
-  async ({ element, browser }) => serialized(async () => {
+  { element: elementRef.describe("Element ID or label text")},
+  async ({ element }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1189,8 +1185,8 @@ server.tool(
 server.tool(
   "hover",
   "Move the mouse over an element to reveal hover-only UI (dropdown menus, row action buttons, tooltips). Re-scans after hovering so newly-revealed elements appear in the result. Accepts element id (number) or label text (string).",
-  { element: elementRef.describe("Element ID or label text"), browser: browserRef },
-  async ({ element, browser }) => serialized(async () => {
+  { element: elementRef.describe("Element ID or label text")},
+  async ({ element }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1228,9 +1224,8 @@ server.tool(
   {
     element: elementRef.describe("Element ID or label text"),
     filepath: z.string().describe("Absolute path to the file to upload"),
-    browser: browserRef,
   },
-  async ({ element, filepath, browser }) => serialized(async () => {
+  async ({ element, filepath }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1306,9 +1301,8 @@ server.tool(
     ctrl: z.boolean().optional().default(false).describe("Hold Ctrl"),
     shift: z.boolean().optional().default(false).describe("Hold Shift"),
     alt: z.boolean().optional().default(false).describe("Hold Alt"),
-    browser: browserRef,
   },
-  async ({ key, ctrl, shift, alt, browser }) => serialized(async () => {
+  async ({ key, ctrl, shift, alt }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1345,9 +1339,8 @@ server.tool(
   "Read the page content as plain text. Optionally pass a JS regex (case-insensitive) to keep only matching lines plus -2/+5 lines of context per hit. Examples: 'pip install', '\\\\$\\\\d+\\\\.\\\\d{2}', '^#+ '.",
   {
     regex: z.string().optional().describe("JS regex pattern, case-insensitive. Per-line match with -2/+5 context window per hit; overlapping windows merged. 0 matches returns 'No matches' — model should broaden or drop the regex, not assume the page is empty."),
-    browser: browserRef,
   },
-  async ({ regex, browser }) => {
+  async ({ regex }) => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1411,8 +1404,8 @@ server.tool(
 server.tool(
   "navigate",
   "Navigate to a URL. Automatically scans the new page after loading.",
-  { url: z.string().describe("URL to navigate to"), browser: browserRef },
-  async ({ url, browser }) => serialized(async () => {
+  { url: z.string().describe("URL to navigate to")},
+  async ({ url }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1442,9 +1435,8 @@ server.tool(
   "Scroll down the page or a specific scrollable container. Use when scan shows '... more below' or '... N more' on a list. Re-scans after scrolling.",
   {
     target: z.string().optional().describe("Label of an element inside the scrollable container. If omitted, scrolls the page."),
-    browser: browserRef,
   },
-  async ({ target, browser }) => serialized(async () => {
+  async ({ target }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1487,9 +1479,8 @@ server.tool(
   "Show ALL items in a scrollable list (time picker, dropdown, etc.). Use when scan shows '... N more' on a bounded list. Returns all items from that container.",
   {
     target: z.string().describe("Label of an element inside the scrollable container to expand"),
-    browser: browserRef,
   },
-  async ({ target, browser }) => serialized(async () => {
+  async ({ target }) => serialized(async () => {
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
@@ -1538,8 +1529,8 @@ server.tool(
 server.tool(
   "tabs",
   "List all open browser tabs with their IDs. Use switch_tab to change the active tab.",
-  { browser: browserRef },
-  async ({ browser }) => {
+  {},
+  async () => {
     try {
       const tabs = await listTabs(CDP_PORT);
       const text = tabs
@@ -1555,8 +1546,8 @@ server.tool(
 server.tool(
   "switch_tab",
   "Switch to a different browser tab by its ID (from the tabs tool).",
-  { tab_id: z.string().describe("Tab ID from the tabs tool output"), browser: browserRef },
-  async ({ tab_id, browser }) => {
+  { tab_id: z.string().describe("Tab ID from the tabs tool output")},
+  async ({ tab_id }) => {
     try {
       await switchTab(CDP_PORT, tab_id);
       const text = emitScan(await runScan());
@@ -1595,7 +1586,23 @@ server.tool(
   }),
 );
 
-// TODO: new_browser / close_browser session management (requires cdp.ts session support)
+// Kill the auto-spawned chromium when this MCP server exits. Idempotent
+// via the killed guard inside shutdownBrowser. Stdin 'end' covers the
+// graceful Cursor-closed-the-pipe case; signals cover the rest. process.exit()
+// in the trampoline runs 'exit' listeners synchronously, which is what
+// actually fires shutdownBrowser when the process is going down.
+let shuttingDown = false;
+function shutdown(code = 0): never {
+  if (shuttingDown) process.exit(code);
+  shuttingDown = true;
+  try { shutdownBrowser(); } catch {}
+  process.exit(code);
+}
+process.on("SIGINT", () => shutdown(130));
+process.on("SIGTERM", () => shutdown(143));
+process.on("SIGHUP", () => shutdown(129));
+process.stdin.on("end", () => shutdown(0));
+process.on("exit", () => { try { shutdownBrowser(); } catch {} });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
