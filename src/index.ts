@@ -26,6 +26,7 @@ interface ScanEntry {
   placeholder?: string; options?: string[]; checked?: boolean; href?: string;
   scrollContainer?: boolean; scrollMore?: number; affordance?: string;
   x?: number; y?: number; w?: number; h?: number;
+  region?: string;
 }
 
 interface ScanResult {
@@ -34,6 +35,81 @@ interface ScanResult {
   groups: Record<string, ScanEntry[]>;
   total: number;
   pageScrollable?: boolean;
+}
+
+// Per-URL-path emit cache for stateful-scan-chrome-dedup.
+// Tracks what the agent has already seen so subsequent scans can elide
+// unchanged elements and emit only diffs. Element ids are stable across
+// scans within a page (WeakMap in scanner.ts), so referencing elided ids
+// in subsequent tool calls works fine.
+//
+// Default ON per benchmark 2026-05-12 (-77% idle, -83% post-action scan
+// output across 20 sites, 0 site failures). Disable via WEBPILOT_SCAN_DEDUP=0
+// for A/B testing or to recover legacy NEW: delta behavior.
+const SCAN_DEDUP = !["0", "false", "no"].includes((process.env.WEBPILOT_SCAN_DEDUP ?? "1").toLowerCase());
+
+interface ScanState {
+  elementSigs: Map<number, string>;       // id → signature; used for change detection
+  byRegion: Map<string, Set<number>>;     // region → ids in that region
+  title: string;
+  pageScrollable?: boolean;
+}
+// LRU bound: per Q10=B. 20 URLs is generous for a session.
+const SCAN_CACHE_LIMIT = 20;
+const scanCache = new Map<string, ScanState>();
+
+function urlPathKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname;
+  } catch {
+    return url;
+  }
+}
+
+// Per-entry signature for change detection. Includes everything an agent
+// would observe — affordance group, label, href, value, checked state, region.
+function entrySig(e: ScanEntry, affordance: string): string {
+  return [
+    affordance,
+    e.tag,
+    e.label || "",
+    e.href || "",
+    e.value || "",
+    e.checked ? "1" : "",
+    e.region || "",
+  ].join("|");
+}
+
+function snapshotState(scan: ScanResult): ScanState {
+  const elementSigs = new Map<number, string>();
+  const byRegion = new Map<string, Set<number>>();
+  for (const aff of ["PRESS", "TYPE", "SELECT", "TOGGLE", "UPLOAD"]) {
+    const group = scan.groups[aff];
+    if (!group) continue;
+    for (const e of group) {
+      elementSigs.set(e.id, entrySig(e, aff));
+      const r = e.region || "_unassigned";
+      if (!byRegion.has(r)) byRegion.set(r, new Set());
+      byRegion.get(r)!.add(e.id);
+    }
+  }
+  return { elementSigs, byRegion, title: scan.title, pageScrollable: scan.pageScrollable };
+}
+
+function getCachedState(url: string): ScanState | undefined {
+  return scanCache.get(urlPathKey(url));
+}
+
+function setCachedState(url: string, state: ScanState): void {
+  const key = urlPathKey(url);
+  if (scanCache.has(key)) scanCache.delete(key); // refresh recency
+  scanCache.set(key, state);
+  while (scanCache.size > SCAN_CACHE_LIMIT) {
+    const oldest = scanCache.keys().next().value;
+    if (oldest === undefined) break;
+    scanCache.delete(oldest);
+  }
 }
 
 function dedup(entries: ScanEntry[]): ScanEntry[] {
@@ -100,7 +176,42 @@ function cleanHref(href: string): string {
   return path + "?" + kept.join("&");
 }
 
-function formatScanResult(scan: ScanResult): string {
+// Per-entry formatter. Same shape for full and dedup output so the agent
+// never sees different schemas — only differences in WHICH entries appear.
+function fmtEntry(aff: string, e: ScanEntry): string {
+  const reg = e.region ? ` [${e.region}]` : "";
+  if (aff === "PRESS") {
+    const href = e.href ? ` → ${cleanHref(e.href)}` : "";
+    return `  [${e.id}] ${e.tag} "${e.label}"${href}${reg}`;
+  }
+  if (aff === "TYPE") {
+    const val = e.value ? ` value="${e.value}"` : "";
+    const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
+    return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"${reg}`;
+  }
+  if (aff === "SELECT") {
+    const opts = e.options?.join(", ") || "";
+    return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]${reg}`;
+  }
+  if (aff === "TOGGLE") {
+    const state = e.checked ? "✓" : "○";
+    return `  [${e.id}] ${e.tag} "${e.label}" ${state}${reg}`;
+  }
+  if (aff === "UPLOAD") {
+    return `  [${e.id}] input[file] "${e.label}"${reg}`;
+  }
+  return `  [${e.id}] ${e.tag} "${e.label}"${reg}`;
+}
+
+const AFFORDANCE_HEADERS: Record<string, string> = {
+  PRESS: "PRESS → press(element)",
+  TYPE: "TYPE → type(element, text)",
+  SELECT: "SELECT → select(element, value)",
+  TOGGLE: "TOGGLE → toggle(element)",
+  UPLOAD: "UPLOAD → upload(element, filepath)",
+};
+
+function formatScanResultFull(scan: ScanResult): string {
   const lines: string[] = [];
   lines.push(`Page: ${scan.title}`);
   lines.push(`URL: ${scan.url}`);
@@ -110,52 +221,150 @@ function formatScanResult(scan: ScanResult): string {
   }
   lines.push("");
 
-  if (scan.groups.PRESS?.length > 0) {
-    lines.push("PRESS → press(element)");
-    lines.push(...formatGroup(scan.groups.PRESS, e => {
-      const href = e.href ? ` → ${cleanHref(e.href)}` : "";
-      return `  [${e.id}] ${e.tag} "${e.label}"${href}`;
-    }));
-    lines.push("");
-  }
-
-  if (scan.groups.TYPE?.length > 0) {
-    lines.push("TYPE → type(element, text)");
-    lines.push(...formatGroup(scan.groups.TYPE, e => {
-      const val = e.value ? ` value="${e.value}"` : "";
-      const ph = e.placeholder ? ` placeholder="${e.placeholder}"` : "";
-      return `  [${e.id}] ${e.tag}[${e.inputType || "text"}]${val}${ph} "${e.label}"`;
-    }));
-    lines.push("");
-  }
-
-  if (scan.groups.SELECT?.length > 0) {
-    lines.push("SELECT → select(element, value)");
-    lines.push(...formatGroup(scan.groups.SELECT, e => {
-      const opts = e.options?.join(", ") || "";
-      return `  [${e.id}] select "${e.label}" value="${e.value}" options=[${opts}]`;
-    }));
-    lines.push("");
-  }
-
-  if (scan.groups.TOGGLE?.length > 0) {
-    lines.push("TOGGLE → toggle(element)");
-    lines.push(...formatGroup(scan.groups.TOGGLE, e => {
-      const state = e.checked ? "✓" : "○";
-      return `  [${e.id}] ${e.tag} "${e.label}" ${state}`;
-    }));
-    lines.push("");
-  }
-
-  if (scan.groups.UPLOAD?.length > 0) {
-    lines.push("UPLOAD → upload(element, filepath)");
-    lines.push(...formatGroup(scan.groups.UPLOAD, e => {
-      return `  [${e.id}] input[file] "${e.label}"`;
-    }));
+  for (const aff of ["PRESS", "TYPE", "SELECT", "TOGGLE", "UPLOAD"]) {
+    const group = scan.groups[aff];
+    if (!group || group.length === 0) continue;
+    lines.push(AFFORDANCE_HEADERS[aff]);
+    lines.push(...formatGroup(group, e => fmtEntry(aff, e)));
     lines.push("");
   }
 
   return lines.join("\n");
+}
+
+// Compact id range form: [1,2,3,5,7,8] → "1-3, 5, 7-8"
+function compactIds(ids: number[]): string {
+  if (ids.length === 0) return "";
+  const sorted = [...ids].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0], prev = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) { prev = sorted[i]; continue; }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+    start = prev = sorted[i];
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return ranges.join(", ");
+}
+
+// Dedup formatter: emit only what's changed since prev state.
+// Per Q2=B (explicit dedup): agent SEES the dedup — header announces it,
+// unchanged elements summarized per region with id ranges.
+function formatScanResultDedup(scan: ScanResult, prev: ScanState): string {
+  const lines: string[] = [];
+
+  // Walk current scan, classify each id as new / changed / unchanged vs prev.
+  const newIds = new Set<number>();
+  const changedIds = new Set<number>();
+  const unchangedIds = new Set<number>();
+  const currentSigs = new Map<number, string>();
+  const idToEntry = new Map<number, { aff: string; entry: ScanEntry }>();
+
+  for (const aff of ["PRESS", "TYPE", "SELECT", "TOGGLE", "UPLOAD"]) {
+    const group = scan.groups[aff];
+    if (!group) continue;
+    for (const e of group) {
+      const sig = entrySig(e, aff);
+      currentSigs.set(e.id, sig);
+      idToEntry.set(e.id, { aff, entry: e });
+      const prevSig = prev.elementSigs.get(e.id);
+      if (prevSig === undefined) newIds.add(e.id);
+      else if (prevSig !== sig) changedIds.add(e.id);
+      else unchangedIds.add(e.id);
+    }
+  }
+
+  const removedIds = new Set<number>();
+  for (const id of prev.elementSigs.keys()) {
+    if (!currentSigs.has(id)) removedIds.add(id);
+  }
+
+  const noChange = newIds.size === 0 && changedIds.size === 0 && removedIds.size === 0;
+
+  lines.push(`Page: ${scan.title}`);
+  lines.push(`URL: ${scan.url}`);
+
+  if (noChange) {
+    const idRange = compactIds([...unchangedIds]);
+    lines.push(`Elements: ${scan.total} (unchanged since last scan, ids: ${idRange})`);
+    if (scan.pageScrollable) {
+      lines.push(`... more below — scroll() for next page`);
+    }
+    return lines.join("\n");
+  }
+
+  const parts: string[] = [];
+  if (newIds.size) parts.push(`${newIds.size} new`);
+  if (changedIds.size) parts.push(`${changedIds.size} changed`);
+  if (removedIds.size) parts.push(`${removedIds.size} gone`);
+  if (unchangedIds.size) parts.push(`${unchangedIds.size} unchanged`);
+  lines.push(`Elements: ${scan.total} (${parts.join(", ")})`);
+  if (scan.pageScrollable) {
+    lines.push(`... more below — scroll() for next page`);
+  }
+  lines.push("");
+
+  // Per affordance group: emit new + changed entries in full, then a per-region
+  // summary of unchanged ids. Removed ids listed at top.
+  if (removedIds.size > 0) {
+    const removedRange = compactIds([...removedIds]);
+    lines.push(`GONE since last scan: ${removedRange}`);
+    lines.push("");
+  }
+
+  for (const aff of ["PRESS", "TYPE", "SELECT", "TOGGLE", "UPLOAD"]) {
+    const group = scan.groups[aff];
+    if (!group || group.length === 0) continue;
+
+    const newEntries = group.filter(e => newIds.has(e.id));
+    const changedEntries = group.filter(e => changedIds.has(e.id));
+    const unchangedEntries = group.filter(e => unchangedIds.has(e.id));
+
+    if (newEntries.length === 0 && changedEntries.length === 0 && unchangedEntries.length === 0) continue;
+
+    lines.push(AFFORDANCE_HEADERS[aff]);
+
+    if (newEntries.length > 0) {
+      lines.push(...formatGroup(newEntries, e => fmtEntry(aff, e) + "  ← new"));
+    }
+    if (changedEntries.length > 0) {
+      lines.push(...formatGroup(changedEntries, e => fmtEntry(aff, e) + "  ← changed"));
+    }
+    if (unchangedEntries.length > 0) {
+      // Group unchanged by region for a compact summary.
+      const byRegion = new Map<string, number[]>();
+      for (const e of unchangedEntries) {
+        const r = e.region || "_unassigned";
+        if (!byRegion.has(r)) byRegion.set(r, []);
+        byRegion.get(r)!.push(e.id);
+      }
+      const regSummaries: string[] = [];
+      // Stable ordering: known regions first, then anything else alphabetical.
+      const order = ["header", "nav", "search", "main", "aside", "footer", "modal", "_unassigned"];
+      const sortedRegs = [...byRegion.keys()].sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+        return a.localeCompare(b);
+      });
+      for (const reg of sortedRegs) {
+        const ids = byRegion.get(reg)!;
+        const display = reg === "_unassigned" ? "?" : reg;
+        regSummaries.push(`${display}: ${ids.length} (${compactIds(ids)})`);
+      }
+      lines.push(`  Unchanged — ${regSummaries.join(" · ")}`);
+    }
+
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+function formatScanResult(scan: ScanResult, prev?: ScanState): string {
+  if (SCAN_DEDUP && prev) return formatScanResultDedup(scan, prev);
+  return formatScanResultFull(scan);
 }
 
 async function scanPage(client: CDP.Client): Promise<ScanResult> {
@@ -352,13 +561,26 @@ async function readFrames(client: CDP.Client, perFrameTimeoutMs = 200): Promise<
   return results;
 }
 
+// Single entry point for all scan-emission to the agent. Handles dedup
+// (when SCAN_DEDUP is on) and legacy NEW: deltas (when off).
+function emitScan(scan: ScanResult, beforeIds?: Set<number>): string {
+  if (SCAN_DEDUP) {
+    const prev = getCachedState(scan.url);
+    const out = formatScanResult(scan, prev);
+    setCachedState(scan.url, snapshotState(scan));
+    return out;
+  }
+  if (beforeIds) return formatDelta(beforeIds, scan);
+  return formatScanResultFull(scan);
+}
+
 async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
   const ids = await evaluate(client, `Object.keys(window.__webpilotRects || {}).map(Number)`) as number[];
   return new Set(ids || []);
 }
 
 function formatDelta(before: Set<number>, result: ScanResult): string {
-  const full = formatScanResult(result);
+  const full = emitScan(result);
   const entries = [
     ...(result.groups.PRESS || []),
     ...(result.groups.TYPE || []),
@@ -664,7 +886,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      return ok(formatScanResult(await runScan()));
+      return ok(emitScan(await runScan()));
     } catch (e) {
       return err(`Scan failed: ${e instanceof Error ? e.message : e}`);
     }
@@ -715,7 +937,7 @@ server.tool(
 
       try {
         const result = fullNavigation ? await runScan() : await scanPage(client);
-        const text = formatDelta(before, result);
+        const text = emitScan(result, before);
         return ok(`Pressed [${id}].${navigated ? " Page navigated." : ""}${alertSuffix()}\n\n${text}`);
       } catch {
         return ok(`Pressed [${id}]. Page is loading — call scan when ready.${alertSuffix()}`);
@@ -892,7 +1114,7 @@ server.tool(
       if (dr) return dr;
 
       const result = await scanPage(client);
-      const text = formatDelta(before, result);
+      const text = emitScan(result, before);
       const hadNew = text.startsWith("NEW:");
       return ok(`Hovered [${id}].${hadNew ? "" : " No new elements appeared."}${alertSuffix()}\n\n${text}`);
     } catch (e) {
@@ -1103,7 +1325,12 @@ server.tool(
       const dr = dialogReturn(`Navigating to ${url} —`);
       if (dr) return dr;
 
-      const text = formatScanResult(await runScan());
+      // Explicit navigate → reset cache for the target URL so the scan that
+      // follows is a fresh full emit. Agents use navigate as a "give me current
+      // state" gesture; preserving the cache here would hand them a stale dedup.
+      scanCache.delete(urlPathKey(url));
+
+      const text = emitScan(await runScan());
       return ok(`Navigated to ${url}.${alertSuffix()}\n\n${text}`);
     } catch (e) {
       return err(`Navigation failed: ${e instanceof Error ? e.message : e}`);
@@ -1148,7 +1375,7 @@ server.tool(
         await evaluate(client, `window.scrollBy({ top: window.innerHeight * 0.8, behavior: "instant" })`);
       }
       await waitForSettle(client);
-      const text = formatScanResult(await scanPage(client));
+      const text = emitScan(await scanPage(client));
       return ok(`Scrolled${target ? ` "${target}"` : ""} down.\n\n${text}`);
     } catch (e) {
       return err(`Scroll failed: ${e instanceof Error ? e.message : e}`);
@@ -1233,7 +1460,7 @@ server.tool(
   async ({ tab_id, browser }) => {
     try {
       await switchTab(CDP_PORT, tab_id);
-      const text = formatScanResult(await runScan());
+      const text = emitScan(await runScan());
       return ok(`Switched tab.\n\n${text}`);
     } catch (e) {
       return err(`Switch failed: ${e instanceof Error ? e.message : e}`);
@@ -1258,7 +1485,7 @@ server.tool(
       try {
         const result = await runScan();
         const action = accept ? "accepted" : "dismissed";
-        return ok(`Dialog ${action}.${alert}\n\n${formatScanResult(result)}`);
+        return ok(`Dialog ${action}.${alert}\n\n${emitScan(result)}`);
       } catch {
         const action = accept ? "accepted" : "dismissed";
         return ok(`Dialog ${action}. Page is loading — call scan when ready.${alert}`);

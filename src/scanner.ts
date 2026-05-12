@@ -501,8 +501,91 @@ export const SCANNER_JS = `(() => {
     if (cornerHit) results.push(hint);
   }
 
+  // Region detection (B0-validated detector B: ARIA + position fallback).
+  // Each interactive element gets a semantic region tag for grouping/dedup.
+  // 20-site benchmark 2026-05-12: 85% coverage, 0 zero-region failures.
+  const _detectedRegions = (() => {
+    const regs = [];
+    let rid = 0;
+    const claimed = new WeakSet();
+    const rules = [
+      ['[role="dialog"][aria-modal="true"], dialog[open]', 'modal'],
+      ['[role="banner"], header', 'header'],
+      ['[role="navigation"], nav', 'nav'],
+      ['[role="search"]', 'search'],
+      ['[role="main"], main', 'main'],
+      ['[role="complementary"], aside', 'aside'],
+      ['[role="contentinfo"], footer', 'footer'],
+    ];
+    for (const [sel, kind] of rules) {
+      for (const el of document.querySelectorAll(sel)) {
+        let p = el.parentElement, nested = false;
+        while (p) { if (claimed.has(p)) { nested = true; break; } p = p.parentElement; }
+        if (nested) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 50 || r.height < 30) continue;
+        claimed.add(el);
+        regs.push({ id: rid++, kind, bbox: { x: r.left, y: r.top, w: r.width, h: r.height } });
+      }
+    }
+    // Position fallback when ARIA underdelivered (no recognizable structural
+    // elements yet). Picks up fixed/sticky chrome on legacy / SPA pages.
+    if (regs.length < 2) {
+      const cands = document.querySelectorAll('div, section');
+      for (const el of cands) {
+        const cs = getComputedStyle(el);
+        if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 100 || r.height < 20) continue;
+        let kind;
+        if (r.top < 100 && r.width > innerWidth * 0.5) kind = 'header';
+        else if (r.bottom > innerHeight - 100 && r.width > innerWidth * 0.5) kind = 'footer';
+        else if (r.left < 100 && r.height > innerHeight * 0.4) kind = 'nav';
+        else if (r.right > innerWidth - 100 && r.height > innerHeight * 0.4) kind = 'aside';
+        else continue;
+        regs.push({ id: rid++, kind, bbox: { x: r.left, y: r.top, w: r.width, h: r.height } });
+      }
+    }
+
+    // Always-on: synthesize a "main" region from viewport remainder if one
+    // hasn't been detected yet. Covers Amazon-shape pages with many nav
+    // regions but no main element, and HN-shape pages with no structural markup.
+    if (!regs.some(r => r.kind === 'main')) {
+      let mt = 0, mb = innerHeight, ml = 0, mr = innerWidth;
+      for (const r of regs) {
+        // Only count regions that actually fall inside the viewport — many
+        // ARIA navs/asides on long pages live way below the fold.
+        if (r.bbox.y + r.bbox.h <= 0 || r.bbox.y >= innerHeight) continue;
+        if (r.kind === 'header') mt = Math.max(mt, r.bbox.y + r.bbox.h);
+        else if (r.kind === 'footer') mb = Math.min(mb, r.bbox.y);
+        else if (r.kind === 'nav' && r.bbox.x < innerWidth * 0.3) ml = Math.max(ml, r.bbox.x + r.bbox.w);
+        else if (r.kind === 'aside' && r.bbox.x > innerWidth * 0.5) mr = Math.min(mr, r.bbox.x);
+      }
+      if (mb - mt > 100 && mr - ml > 100) {
+        regs.push({ id: rid++, kind: 'main', bbox: { x: ml, y: mt, w: mr - ml, h: mb - mt } });
+      }
+    }
+    return regs;
+  })();
+
+  function _assignRegion(el) {
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    let best = null, bestArea = Infinity;
+    for (const reg of _detectedRegions) {
+      const b = reg.bbox;
+      if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+        const a = b.w * b.h;
+        if (a < bestArea) { bestArea = a; best = reg.kind; }
+      }
+    }
+    return best;
+  }
+
   // Build output grouped by affordance
   const groups = { PRESS: [], TYPE: [], SELECT: [], TOGGLE: [], UPLOAD: [] };
+  window.__webpilotRegions = {};
   for (const hint of results) {
     const el = hint.el;
     const r = hint.rect;
@@ -548,6 +631,12 @@ export const SCANNER_JS = `(() => {
     };
     window.__webpilotLabels[id] = label;
     window.__webpilotAffordances[id] = affordance;
+
+    const region = el.__frameElement ? null : _assignRegion(el);
+    if (region) {
+      entry.region = region;
+      window.__webpilotRegions[id] = region;
+    }
 
     // Tag elements inside scroll containers for annotation grouping
     const sp = getScrollParent(el);
