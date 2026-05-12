@@ -14,7 +14,7 @@ You've identified a problem. Before writing any code, go through this process.
    - What it risks (regressions, edge cases)
    - When it fails
 
-4. **Test the hypothesis BEFORE implementing.** Run the detection/heuristic on 20+ real sites via CDP. Show the data. Don't guess — measure.
+4. **Test the hypothesis BEFORE implementing.** Run the detection/heuristic on 50+ real sites via CDP. Show the data. Don't guess — measure.
    - "I think ancestor text will disambiguate" → test it on HN, Amazon, Google, GitHub, Reddit
    - "I think opacity:0 elements are always hidden junk" → check Amazon (prices are opacity:0)
    - "I think containers >50% viewport are feeds" → check Gmail (sidebar is 30% but also a feed)
@@ -27,4 +27,4 @@ You've identified a problem. Before writing any code, go through this process.
 
 Computation is cheap. Network I/O is expensive. Heuristics are fragile. Data beats intuition. The right structural fix is the one that works on 20 websites, not the one that's elegant in theory.
 
-Every change to the scanner affects every website the tool visits. A "small" fix that introduces a false positive on Amazon affects every Amazon search the model ever does. Test broadly, ship conservatively.
+Test broadly
