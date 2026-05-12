@@ -68,6 +68,27 @@ Lesson for future ingests: grep hit counts are a *sampling tool*, not a *load co
 
 The viewport-bound scan decision is not arbitrary — it's backed by hard measurement (99 sites, ~7× per-session token cost difference). Worth remembering when future hypotheses propose surfacing more in scan: the cost ceiling is real and was paid for in benchmark time. Conversely, the chrome-strip arc is the inverse — a benchmark that *cleanly validated* a change still got the change removed on principle. Both directions matter when interpreting future ingests.
 
+## [2026-05-12] refute | find(query) hypothesis based on owner's prior experience
+
+Started implementing `find(query)` per the hypothesis. Owner stopped mid-implementation: webpilot previously shipped a `query` tool with this same API shape, and agents made too-narrow / semantic-style calls (treating it as a search engine that should understand intent). The owner pivoted to `read({regex})` precisely because of that failure pattern.
+
+The shape of a "natural-language query" API invites semantic-search-style misuse regardless of how the implementation does matching. Substring matching can't satisfy `query("button to add product to cart")` — the agent concludes the tool is broken.
+
+Reverted the in-progress implementation; marked hypothesis as `status: refuted`.
+
+Pages touched:
+- src/index.ts (reverted — find tool removed before commit)
+- wiki/hypotheses/find-query-tool.md (status: open → refuted, evidence updated)
+- wiki/findings/expose-primitives-not-search-engines.md (new — articulates the principle)
+- wiki/index.md (hypothesis ranking note; new finding listed)
+- wiki/log.md (this entry)
+
+Two narrower follow-ups identified for the original "agents abandon webpilot for curl" symptom — both improvements to existing primitives, not new tools:
+1. Improve `read({regex})` tool description to lean into "find content" framing.
+2. Surface site-internal search affordances in scan output when `<input type="search">` / `[role="search"]` exist.
+
+Calibration note: this is the cleanest refutation in the wiki so far — prior implementation experience trumped a hypothesis derived from session analysis. Worth bookmarking as evidence that owner-history is a first-class source alongside session data and benchmarks.
+
 ## [2026-05-12] ship | nail-the-dedup post-ship refinements
 
 Post-ship session analysis (6 new cursor sessions) surfaced four structural edges in the v1 dedup that violated `abstract-mechanics-not-goals`. Three fixed cleanly, one investigated inconclusively, two correctness fixes shipped.

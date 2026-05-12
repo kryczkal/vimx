@@ -27,6 +27,7 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 - [agents-have-no-state-prediction](findings/agents-have-no-state-prediction.md) — reactive perceive→act, no predicted outcome to compare against.
 - [custom-widget-thrash](findings/custom-widget-thrash.md) — biggest single failure pattern; custom dropdowns burn 6–12 turns of guessing.
 - [tool-rolodex-blind-spots](findings/tool-rolodex-blind-spots.md) — hover/key/expand systematically underused even when scan output hints them.
+- [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md) — query-shaped APIs invite semantic-search misuse regardless of impl; expose regex/primitives and let the agent own query semantics.
 
 ## Hypotheses
 
@@ -35,7 +36,7 @@ Ranked by expected leverage (highest first):
 1. [stateful-scan-chrome-dedup](hypotheses/stateful-scan-chrome-dedup.md) — diff repeated scans against page-state cache. **CONFIRMED** (2026-05-12): -83% idle, -89% post-action.
 2. [semantic-landmark-grouping](hypotheses/semantic-landmark-grouping.md) — group scan by ARIA landmarks / HTML5 sections. **Partially shipped** with #1 (region tags on every entry).
 3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — emit URL/title/h1/badge diffs after every mutating action.
-4. [find-query-tool](hypotheses/find-query-tool.md) — native `find(query)` replacing `read({regex})` workarounds.
+4. [find-query-tool](hypotheses/find-query-tool.md) — **REFUTED 2026-05-12**: prior `query` tool had this exact shape; agents made too-narrow semantic calls. The shape of a "natural-language query" API invites misuse regardless of implementation. See [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md).
 5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — heuristic `→ opens_modal` style hints on PRESS elements.
 6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — detect cookie banners, signin walls, captchas as named states.
 7. [tab-switch-resets-scan-cache](hypotheses/tab-switch-resets-scan-cache.md) — safety-conservative: reset per-URL cache on tab activation to avoid background-mutation drift.

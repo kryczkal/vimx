@@ -2,12 +2,22 @@
 created: 2026-05-12
 last_verified: 2026-05-12
 type: hypothesis
-status: open
-evidence: [sessions/2026-05-12-cursor-export-17-sessions.md]
+status: refuted
+evidence: [sessions/2026-05-12-cursor-export-17-sessions.md, findings/expose-primitives-not-search-engines.md]
 tags: [search, agent-native, read]
 ---
 
-# find(query) as a native tool
+## Refuted 2026-05-12 — prior implementation evidence
+
+webpilot previously shipped a `query` tool that worked structurally like the proposed `find(query)`. Outcome: agents made too-narrow / semantic-style calls (e.g. `query("button to add product to cart")` expecting intent understanding). Substring matching can't satisfy that call shape; agents conclude the tool is broken and abandon it. The owner pivoted to `read({regex})` precisely because of this failure pattern.
+
+The shape of the API — accepting a "natural-language query" — is what invites the misuse. Whether the implementation is substring, fuzzy, or anything short of full semantic search, the API promises intent-understanding it can't deliver. Models read the API surface and call accordingly.
+
+**The principle**: don't expose tools that promise to understand agent intent. Expose primitives the agent composes. Regex is the right primitive for "find content on the page" — models know regex; let them own the query semantics. See [expose-primitives-not-search-engines](../findings/expose-primitives-not-search-engines.md).
+
+**Implication for the "agents abandon webpilot for curl" symptom from sessions 98cd4dbf/fcdb27fe**: the actual fix isn't a new tool. It's better discoverability of `read({regex})` for search-shaped tasks, and/or surfacing search affordances explicitly when `<input type="search">` / `role="search"` exist on the page. Filed as a separate, narrower direction below.
+
+## Original hypothesis (preserved)
 
 **Predicted change.** Add a `find(query)` tool that takes a natural-language string and returns matching interactive elements (with their semantic-region context) plus matching text snippets, distinguished by region (`In nav`, `In main`, `In modal`). It's the agent-native equivalent of Cmd+F.
 
