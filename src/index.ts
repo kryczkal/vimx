@@ -58,6 +58,13 @@ interface ScanState {
 const SCAN_CACHE_LIMIT = 20;
 const scanCache = new Map<string, ScanState>();
 
+// (b) Error-state bypass: on interactive failures (obscured / stale / not found)
+// the next scan must emit FULL output so the agent has labels for diagnosis.
+// Dedup is implementation mechanic; recovery is task semantics — mechanic yields.
+// Cleared after one emit. Set via markActionError() in error paths.
+let nextScanForceFresh = false;
+function markActionError(): void { if (SCAN_DEDUP) nextScanForceFresh = true; }
+
 function urlPathKey(url: string): string {
   try {
     const u = new URL(url);
@@ -285,8 +292,10 @@ function formatScanResultDedup(scan: ScanResult, prev: ScanState): string {
   lines.push(`URL: ${scan.url}`);
 
   if (noChange) {
+    // (a) Frame as positive assertion about the page, not "I am withholding
+    // info." The agent's prior view is the truth; act with confidence on it.
     const idRange = compactIds([...unchangedIds]);
-    lines.push(`Elements: ${scan.total} (unchanged since last scan, ids: ${idRange})`);
+    lines.push(`No changes since last scan. ${scan.total} elements (ids ${idRange}) still current — act on what you saw.`);
     if (scan.pageScrollable) {
       lines.push(`... more below — scroll() for next page`);
     }
@@ -563,9 +572,14 @@ async function readFrames(client: CDP.Client, perFrameTimeoutMs = 200): Promise<
 
 // Single entry point for all scan-emission to the agent. Handles dedup
 // (when SCAN_DEDUP is on) and legacy NEW: deltas (when off).
+//
+// Honors the (b) error-state bypass: when nextScanForceFresh is set (an
+// action just errored), emit full so the agent has full labels for diagnosis.
 function emitScan(scan: ScanResult, beforeIds?: Set<number>): string {
   if (SCAN_DEDUP) {
-    const prev = getCachedState(scan.url);
+    const useCache = !nextScanForceFresh;
+    nextScanForceFresh = false;
+    const prev = useCache ? getCachedState(scan.url) : undefined;
     const out = formatScanResult(scan, prev);
     setCachedState(scan.url, snapshotState(scan));
     return out;
@@ -605,6 +619,13 @@ function ok(text: string) {
 
 function err(text: string) {
   return { content: [{ type: "text" as const, text }], isError: true };
+}
+
+// Action-error: same as err() but also primes the next scan to emit FULL
+// output (no dedup). The agent needs labels for recovery diagnosis.
+function aerr(text: string) {
+  markActionError();
+  return err(text);
 }
 
 function dialogBlock(): ReturnType<typeof err> | null {
@@ -903,13 +924,13 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "PRESS");
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
       highlight(client, id);
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element not found. Run scan first.");
-      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
+      if (!rect) return aerr("Element not found. Run scan first.");
+      if (rect.obscured) return aerr(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
       const before = await snapshotIds(client);
       const urlBefore = await evaluate(client, "location.href") as string;
@@ -964,12 +985,12 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TYPE");
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
       highlight(client, id);
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element not found. Run scan first.");
+      if (!rect) return aerr("Element not found. Run scan first.");
 
       await cdpClick(client, rect.x, rect.y);
       await evaluate(client, `(() => {
@@ -1037,13 +1058,13 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "SELECT");
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
       highlight(client, id);
       const result = await evaluate(client, `${SELECT_JS}(${id}, ${JSON.stringify(value)})`) as {
         ok?: boolean; error?: string; selected?: string; actual?: string;
       };
-      if (result.error) return err(result.error);
+      if (result.error) return aerr(result.error);
       return ok(`Selected "${result.selected}" on [${id}]. Showing: "${result.actual}"`);
     } catch (e) {
       return err(`Select failed: ${e instanceof Error ? e.message : e}`);
@@ -1061,13 +1082,13 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "TOGGLE");
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
       highlight(client, id);
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element not found. Run scan first.");
-      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
+      if (!rect) return aerr("Element not found. Run scan first.");
+      if (rect.obscured) return aerr(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
       await cdpClick(client, rect.x, rect.y);
 
@@ -1097,13 +1118,13 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element);
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
       highlight(client, id);
 
       const rect = await getRect(client, id);
-      if (!rect) return err("Element not found. Run scan first.");
-      if (rect.obscured) return err(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
+      if (!rect) return aerr("Element not found. Run scan first.");
+      if (rect.obscured) return aerr(`Element [${id}] is obscured by ${rect.obscured}. Dismiss it or scroll to clear the obstruction, then retry.`);
 
       const before = await snapshotIds(client);
       await startObserving(client);
@@ -1137,7 +1158,7 @@ server.tool(
     try {
       const client = await getClient(CDP_PORT);
       const resolved = await resolveElement(client, element, "UPLOAD");
-      if ("error" in resolved) return err(resolved.error);
+      if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
 
       // Get the DOM node ID for CDP DOM.setFileInputFiles
@@ -1147,7 +1168,7 @@ server.tool(
         return { tagName: el.tagName, type: el.type };
       })()`) as { tagName: string; type: string } | null;
 
-      if (!nodeInfo) return err("Element not found. Run scan first.");
+      if (!nodeInfo) return aerr("Element not found. Run scan first.");
 
       // Use DOM.querySelector to get the backend node ID
       const { root } = await client.DOM.getDocument();
@@ -1427,7 +1448,7 @@ server.tool(
         return null;
       })()`) as string[] | null;
 
-      if (!items) return err(`No scrollable container found near "${target}".`);
+      if (!items) return aerr(`No scrollable container found near "${target}".`);
       const text = items.map((item, i) => `  ${item}`).join("\n");
       return ok(`Expanded list near "${target}" (${items.length} items):\n${text}`);
     } catch (e) {

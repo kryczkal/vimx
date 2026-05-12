@@ -568,7 +568,17 @@ export const SCANNER_JS = `(() => {
     return regs;
   })();
 
+  // (d) Region stability: pin region assignment to first observation per
+  // element via a WeakMap. Same DOM node keeps the same region across rescans
+  // even when layout shifts cause the bbox-smallest-containment rule to
+  // pick differently. Prevents search-vs-header flips observed in
+  // post-ship cursor-session-85a6ca6c (id 117 across rescans).
+  // WeakMap entries vanish when the element is GC'd (removed from DOM);
+  // full navigation resets JS context and clears the map.
+  if (!window.__wpRegionMap) window.__wpRegionMap = new WeakMap();
+
   function _assignRegion(el) {
+    if (window.__wpRegionMap.has(el)) return window.__wpRegionMap.get(el);
     const r = el.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
@@ -580,6 +590,7 @@ export const SCANNER_JS = `(() => {
         if (a < bestArea) { bestArea = a; best = reg.kind; }
       }
     }
+    window.__wpRegionMap.set(el, best);
     return best;
   }
 
