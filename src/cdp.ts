@@ -180,29 +180,38 @@ function sweepStaleProfiles(): void {
     } catch { /* no pid file = predates feature, treat as stale */ }
     if (ownerAlive) continue;
 
-    // Owner dead. Orphan chromium may still be holding the dir; SingletonLock
-    // is a symlink whose target is "<host>-<pid>". Verify via /proc that the
-    // pid actually belongs to a chromium running on this dir before killing
-    // the process group, in case the pid has been recycled.
-    try {
-      const target = readlinkSync(join(dir, "SingletonLock"));
-      const chromiumPid = parseInt(target.split("-").pop() ?? "", 10);
-      if (Number.isFinite(chromiumPid) && chromiumPid > 0) {
-        try {
-          const cmdline = readFileSync(`/proc/${chromiumPid}/cmdline`, "utf8");
-          if (cmdline.includes("chromium") && cmdline.includes(dir)) {
-            try { process.kill(-chromiumPid, "SIGKILL"); } catch {}
-          }
-        } catch { /* /proc unreachable or pid gone */ }
-      }
-    } catch { /* no lock file = chromium not running */ }
-
+    // Owner dead. Orphan chromium may still be holding the dir.
+    const orphanPid = getChromiumPidOwning(dir);
+    if (orphanPid !== null) {
+      try { process.kill(-orphanPid, "SIGKILL"); } catch {}
+    }
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }
 
 function writeOwnershipPid(dir: string): void {
   try { writeFileSync(join(dir, "webpilot.pid"), String(process.pid)); } catch {}
+}
+
+// Returns the pid of a live chromium currently holding profileDir, or null if
+// none does. Reads chromium's SingletonLock symlink (target is "<host>-<pid>")
+// and verifies via /proc/<pid>/cmdline that the pid is actually a chromium
+// process running against this dir — guards against pid recycling and
+// against treating a defunct lock as live. Cribbed from playwright-mcp's
+// browserFactory.ts.
+function getChromiumPidOwning(profileDir: string): number | null {
+  try {
+    const target = readlinkSync(join(profileDir, "SingletonLock"));
+    const pid = parseInt(target.split("-").pop() ?? "", 10);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+    if (cmdline.includes("chromium") && cmdline.includes(profileDir)) {
+      return pid;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function ensureTemplateClone(): string | null {
@@ -284,21 +293,26 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
     mkdirSync(profile, { recursive: true });
     ephemeral = false;
 
-    // If a chromium is already running against this profile (e.g. user
-    // launched it manually to log into Google), attach instead of spawning
-    // a second instance — chromium would otherwise forward to the existing
-    // singleton and exit, leaving us with no controllable process.
-    try {
-      const existingPort = await readActivePort(profile, 200);
-      await CDP.List({ port: existingPort });
-      return { port: existingPort, shutdown: () => {} };
-    } catch {
-      // not running, fall through to spawn
+    // Gate on whether a real chromium is actually running against this dir
+    // via SingletonLock (vs CDP probe, which can false-negative on slow
+    // start and would then strip locks of a live chromium — the spawn
+    // would singleton-forward to the existing chromium and our process
+    // would exit with no controllable browser). If yes, attach with a
+    // generous CDP timeout. If no, lock files are stale; clean and spawn.
+    const livePid = getChromiumPidOwning(profile);
+    if (livePid !== null) {
+      try {
+        const existingPort = await readActivePort(profile, 5000);
+        await CDP.List({ port: existingPort });
+        return { port: existingPort, shutdown: () => {} };
+      } catch {
+        throw new Error(
+          `chromium pid ${livePid} owns profile '${profile}' but CDP isn't reachable. ` +
+          `Either kill it or relaunch with --remote-debugging-port=0.`,
+        );
+      }
     }
 
-    // Singleton* and DevToolsActivePort are stale after a SIGKILLed run;
-    // a fresh chromium would otherwise show "previous session crashed" UI
-    // or, worse, a stale port pointing at nothing.
     for (const f of ["DevToolsActivePort", "SingletonLock", "SingletonCookie", "SingletonSocket"]) {
       try { rmSync(join(profile, f), { force: true }); } catch {}
     }
