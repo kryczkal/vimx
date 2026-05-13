@@ -112,8 +112,9 @@ export async function ensureBrowser(port: number): Promise<void> {
   await waitForCDP(port);
 }
 
-// ── Server boot ──
-// One MCP server process == one browser. Three branches:
+// ── Browser lifecycle ──
+// MCP server starts cold; the LLM calls browser_open to spawn / attach, and
+// browser_close to tear down. spawnOrAttach() has three branches:
 //   1. CDP_TARGET set: attach to a remote websocket. Caller manages lifetime.
 //   2. CDP_PORT set: attach to a local Chrome on that port. Started outside
 //      this process (e.g. scripts/dev-chrome.sh), so we don't kill it.
@@ -124,15 +125,17 @@ export async function ensureBrowser(port: number): Promise<void> {
 //      automation. With a persistent profile, if chromium is already
 //      running against that dir we attach to it; otherwise we spawn.
 //
-// TODO (headless future): under SIGKILL the spawned chromium becomes an
-// orphan. With a visible window the user can close it manually; once we
-// support headless that won't be possible. Fix is a startup sweep of
+// TODO (headless future): under SIGKILL of the MCP server the spawned chromium
+// becomes an orphan. With a visible window the user can close it manually;
+// once we support headless that won't be possible. Fix is a startup sweep of
 // /tmp/webpilot-mcp-* dirs whose PID file points at a dead PID.
 
-export interface BrowserHandle {
+interface BrowserHandle {
   port: number;
   shutdown: () => void;
 }
+
+let currentHandle: BrowserHandle | null = null;
 
 async function readActivePort(profile: string, timeoutMs = 10_000): Promise<number> {
   const path = join(profile, "DevToolsActivePort");
@@ -151,7 +154,7 @@ async function readActivePort(profile: string, timeoutMs = 10_000): Promise<numb
   throw new Error(`Chromium did not write DevToolsActivePort at ${path} within ${timeoutMs}ms`);
 }
 
-export async function startBrowser(): Promise<BrowserHandle> {
+async function spawnOrAttach(): Promise<BrowserHandle> {
   if (CDP_TARGET) {
     return { port: 0, shutdown: () => {} };
   }
@@ -234,6 +237,53 @@ export async function startBrowser(): Promise<BrowserHandle> {
   }
 }
 
+export function isBrowserOpen(): boolean {
+  return currentHandle !== null;
+}
+
+export async function openBrowser(): Promise<{ port: number; alreadyOpen: boolean }> {
+  if (currentHandle) {
+    return { port: currentHandle.port, alreadyOpen: true };
+  }
+  currentHandle = await spawnOrAttach();
+  return { port: currentHandle.port, alreadyOpen: false };
+}
+
+export async function closeBrowser(): Promise<{ wasOpen: boolean }> {
+  if (!currentHandle) return { wasOpen: false };
+
+  if (activeClient) {
+    try { await activeClient.close(); } catch {}
+    activeClient = null;
+  }
+
+  try { currentHandle.shutdown(); } catch {}
+  currentHandle = null;
+
+  // Stale dialog state from the dead chromium would confuse the next open.
+  pendingDialog = null;
+  lastAlert = null;
+  dialogResolvers = [];
+
+  return { wasOpen: true };
+}
+
+// Sync-only cleanup for process-exit hooks (signal handlers can't await).
+// Skips the graceful CDP client close — chrome is dying anyway. Just kills
+// the process group and wipes the profile if we spawned one.
+export function syncShutdownCurrent(): void {
+  if (!currentHandle) return;
+  try { currentHandle.shutdown(); } catch {}
+  currentHandle = null;
+}
+
+function requirePort(): number {
+  if (!currentHandle) {
+    throw new Error("No browser is open. Call browser_open first.");
+  }
+  return currentHandle.port;
+}
+
 async function connectToTab(port: number): Promise<CDP.Client> {
   if (CDP_TARGET) {
     const client = await CDP({ target: CDP_TARGET });
@@ -254,7 +304,8 @@ async function connectToTab(port: number): Promise<CDP.Client> {
   return client;
 }
 
-export async function getClient(port: number): Promise<CDP.Client> {
+export async function getClient(): Promise<CDP.Client> {
+  const port = requirePort();
   if (activeClient) {
     if (pendingDialog) return activeClient;
     try {
@@ -266,8 +317,10 @@ export async function getClient(port: number): Promise<CDP.Client> {
     }
   }
 
-  await ensureBrowser(port);
-
+  // openBrowser already verified the port is reachable (spawn path waits for
+  // DevToolsActivePort; attach path called ensureBrowser). If chrome died
+  // mid-session, connect fails here and the error surfaces — the LLM can
+  // recover by calling browser_close + browser_open.
   for (const delay of RETRY_DELAYS) {
     try {
       activeClient = await connectToTab(port);
@@ -281,17 +334,17 @@ export async function getClient(port: number): Promise<CDP.Client> {
   return activeClient;
 }
 
-export async function listTabs(port: number): Promise<{ id: string; title: string; url: string }[]> {
+export async function listTabs(): Promise<{ id: string; title: string; url: string }[]> {
   if (CDP_TARGET) return [];
-
-  await ensureBrowser(port);
+  const port = requirePort();
   const targets = await CDP.List({ port });
   return targets
     .filter(t => t.type === "page" && !t.url.startsWith("devtools://"))
     .map(t => ({ id: t.id, title: t.title, url: t.url }));
 }
 
-export async function switchTab(port: number, tabId: string): Promise<void> {
+export async function switchTab(tabId: string): Promise<void> {
+  const port = requirePort();
   if (activeClient) {
     try { await activeClient.close(); } catch {}
   }

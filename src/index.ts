@@ -6,11 +6,10 @@ import {
   getClient, evaluate, evaluateInFrame, listTabs, switchTab, navigateTo,
   waitForNavigation, serialized, getPendingDialog, consumeLastAlert,
   handlePendingDialog, onDialog, startObserving, waitForSettle,
-  waitForLoadingIndicators, startBrowser,
+  waitForLoadingIndicators, openBrowser, closeBrowser, syncShutdownCurrent,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
 
-const { port: CDP_PORT, shutdown: shutdownBrowser } = await startBrowser();
 const HIGHLIGHT = !["", "0", "false"].includes((process.env.WEBPILOT_HIGHLIGHT ?? "").toLowerCase());
 
 function highlight(client: CDP.Client, id: number): void {
@@ -423,7 +422,7 @@ async function scanPage(client: CDP.Client): Promise<ScanResult> {
 }
 
 async function runScan(): Promise<ScanResult> {
-  const client = await getClient(CDP_PORT);
+  const client = await getClient();
   await startObserving(client);
   await waitForSettle(client);
   // If the page is still streaming content (skeleton/aria-busy visible),
@@ -932,6 +931,37 @@ const server = new McpServer({
 });
 
 server.tool(
+  "browser_open",
+  "Open a browser. Must be called before scan/press/type/etc. Spawns a fresh headed chromium with a clean ephemeral profile by default; if CDP_PORT or CDP_TARGET env is set, attaches to that existing chromium instead. Idempotent — calling twice returns 'already open'.",
+  {},
+  async () => {
+    try {
+      const result = await openBrowser();
+      if (result.alreadyOpen) {
+        return ok(`Browser already open.`);
+      }
+      return ok(`Browser opened. Use navigate to load a URL.`);
+    } catch (e) {
+      return err(`browser_open failed: ${e instanceof Error ? e.message : e}`);
+    }
+  },
+);
+
+server.tool(
+  "browser_close",
+  "Close the open browser. Kills the spawned chromium and wipes its profile (no-op for attach-mode where you started chromium yourself). Call this when you're done browsing so the chromium window goes away. No-op if no browser is open.",
+  {},
+  async () => {
+    try {
+      const result = await closeBrowser();
+      return ok(result.wasOpen ? `Browser closed.` : `No browser was open.`);
+    } catch (e) {
+      return err(`browser_close failed: ${e instanceof Error ? e.message : e}`);
+    }
+  },
+);
+
+server.tool(
   "scan",
   "Scan the current page for all interactive elements, grouped by affordance (PRESS, TYPE, SELECT, TOGGLE). Returns element IDs you can use with press/type/select/toggle tools. Call this first before interacting with any page.",
   {},
@@ -954,7 +984,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element, "PRESS");
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1014,7 +1044,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element, "TYPE");
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1105,7 +1135,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element, "SELECT");
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1137,7 +1167,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element, "TOGGLE");
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1189,7 +1219,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element);
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1228,7 +1258,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const resolved = await resolveElement(client, element, "UPLOAD");
       if ("error" in resolved) return aerr(resolved.error);
       const id = resolved.id;
@@ -1296,7 +1326,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       let modifiers = 0;
       if (alt) modifiers |= 1;
       if (ctrl) modifiers |= 2;
@@ -1334,7 +1364,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const main = (await evaluate(client, `${READ_JS}().text`)) as string;
       const frames = await readFrames(client);
 
@@ -1399,7 +1429,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       await navigateTo(client, url);
 
       // beforeunload from the old page can hold navigation. Don't try to scan
@@ -1430,7 +1460,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       await startObserving(client);
       if (target) {
         await evaluate(client, `(() => {
@@ -1474,7 +1504,7 @@ server.tool(
     const blocked = dialogBlock();
     if (blocked) return blocked;
     try {
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       const items = await evaluate(client, `(() => {
         const labels = window.__webpilotLabels || {};
         const q = ${JSON.stringify(target)}.toLowerCase();
@@ -1522,7 +1552,7 @@ server.tool(
   {},
   async () => {
     try {
-      const tabs = await listTabs(CDP_PORT);
+      const tabs = await listTabs();
       const text = tabs
         .map((t, i) => `[${i}] ${t.title}\n    ${t.url}\n    id: ${t.id}`)
         .join("\n\n");
@@ -1539,7 +1569,7 @@ server.tool(
   { tab_id: z.string().describe("Tab ID from the tabs tool output") },
   async ({ tab_id }) => {
     try {
-      await switchTab(CDP_PORT, tab_id);
+      await switchTab(tab_id);
       const text = emitScan(await runScan());
       return ok(`Switched tab.\n\n${text}`);
     } catch (e) {
@@ -1559,7 +1589,7 @@ server.tool(
     try {
       const d = getPendingDialog();
       if (!d) return err("No dialog is currently open.");
-      const client = await getClient(CDP_PORT);
+      const client = await getClient();
       await handlePendingDialog(client, accept, text);
       const alert = alertSuffix();
       try {
@@ -1576,23 +1606,23 @@ server.tool(
   }),
 );
 
-// Kill the auto-spawned chromium when this MCP server exits. Idempotent
-// via the killed guard inside shutdownBrowser. Stdin 'end' covers the
-// graceful Cursor-closed-the-pipe case; signals cover the rest. process.exit()
-// in the trampoline runs 'exit' listeners synchronously, which is what
-// actually fires shutdownBrowser when the process is going down.
+// If the LLM forgets browser_close and the MCP server is going down, kill any
+// spawned chromium + wipe its profile. Stdin 'end' covers the graceful
+// Cursor-closed-the-pipe case; signals cover the rest. process.exit() runs
+// 'exit' listeners synchronously, which is the actual fallback path when
+// going down via any route. Idempotent via the killed guard in spawnOrAttach.
 let shuttingDown = false;
 function shutdown(code = 0): never {
   if (shuttingDown) process.exit(code);
   shuttingDown = true;
-  try { shutdownBrowser(); } catch {}
+  try { syncShutdownCurrent(); } catch {}
   process.exit(code);
 }
 process.on("SIGINT", () => shutdown(130));
 process.on("SIGTERM", () => shutdown(143));
 process.on("SIGHUP", () => shutdown(129));
 process.stdin.on("end", () => shutdown(0));
-process.on("exit", () => { try { shutdownBrowser(); } catch {} });
+process.on("exit", () => { try { syncShutdownCurrent(); } catch {} });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
