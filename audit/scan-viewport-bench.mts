@@ -349,7 +349,7 @@ for (const r of rows) {
   cur_type += r.cur_type; nov_type += r.nov_type;
 }
 console.log(`\n=== Aggregate across ${rows.length} sites (${failCount} failed) ===`);
-console.log(`Element counts (window.__webpilot total):`);
+console.log(`Element counts (window.__vimx total):`);
 console.log(`  current (viewport-bound):  ${cur_elems}`);
 console.log(`  no viewport filter:        ${nov_elems}  (${(nov_elems/cur_elems).toFixed(2)}×)`);
 console.log(`\nFormatted output chars (what the model sees):`);

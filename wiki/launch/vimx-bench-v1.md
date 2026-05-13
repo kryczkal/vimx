@@ -8,15 +8,15 @@ evidence: [../findings/perception-share-of-session-tokens.md, ../findings/chrome
 harness: BU-Bench (../../../BU-Bench/)
 ---
 
-# WP-Bench v1 — the category benchmark
+# Vimx Bench v1 — the category benchmark
 
-The point of this benchmark is not to prove webpilot is faster. It is to prove that **DOM-dump browser tools and filtering-based browser tools belong to different categories** — that there exist whole classes of web tasks where the dump approach collapses and the filter approach succeeds. If we can't show categorical gaps (≥30pt success-rate deltas vs Playwright-MCP in ≥4 of 6 categories), the category claim is wishful thinking and we go back to incremental wins.
+The point of this benchmark is not to prove vimx is faster. It is to prove that **DOM-dump browser tools and filtering-based browser tools belong to different categories** — that there exist whole classes of web tasks where the dump approach collapses and the filter approach succeeds. If we can't show categorical gaps (≥30pt success-rate deltas vs Playwright-MCP in ≥4 of 6 categories), the category claim is wishful thinking and we go back to incremental wins.
 
 This is pre-registered: predictions in the **Predictions** section are public commitments, not retroactive narrative.
 
 ## Thesis
 
-Browser agents are bottlenecked by the wrong abstraction. DOM-dump approaches (Playwright-MCP, Stagehand-by-default) hand the model raw HTML and ask it to compute interactability. Filtering approaches (Vimium, webpilot) scan the page once, return only what is visible-and-clickable, and resolve refs against live DOM at action-time.
+Browser agents are bottlenecked by the wrong abstraction. DOM-dump approaches (Playwright-MCP, Stagehand-by-default) hand the model raw HTML and ask it to compute interactability. Filtering approaches (Vimium, vimx) scan the page once, return only what is visible-and-clickable, and resolve refs against live DOM at action-time.
 
 The wrong abstraction:
 - Floods context with structure the model has to re-derive every turn
@@ -104,7 +104,7 @@ Search-bar usage is explicitly forbidden; the agent must navigate via hover-reve
 
 - **HR-01 Home Depot drill nav.** Site: `homedepot.com`. Without using the search bar, navigate Tools → Power Tools → Drills → Cordless Drills. Add SKU 2997-22 (Milwaukee M18 Hammer Drill/Impact Driver Kit) to cart. Verifier: cart contains item with SKU 2997-22.
 - **HR-02 Costco TV nav.** Site: `costco.com`. Without using search, navigate Electronics → TVs → 65-Inch TVs. Filter to OLED only. Sort by price ascending. Add the cheapest OLED TV to cart. Verifier: cart contains 1 item with `OLED` in title.
-- **HR-03 AWS console S3 nav.** Logged-in AWS console. Without using the top search bar, use the `Services` hover menu to reach S3. Create a bucket `wp-bench-<uuid>` in `us-west-2`, default settings. Verifier: AWS API `s3.list_buckets()` includes the bucket.
+- **HR-03 AWS console S3 nav.** Logged-in AWS console. Without using the top search bar, use the `Services` hover menu to reach S3. Create a bucket `vimx-bench-<uuid>` in `us-west-2`, default settings. Verifier: AWS API `s3.list_buckets()` includes the bucket.
 - **HR-04 Best Buy laptop nav.** Site: `bestbuy.com`. Without using search, navigate Computers & Tablets → Laptops → MacBooks. Apply filters: RAM ≥16GB, Storage ≥512GB, Color Silver. Add the first result to cart. Verifier: cart contains a MacBook matching the filter set.
 
 ### XI — Cross-origin iframes
@@ -113,17 +113,17 @@ Iframes from a different origin than the host page. Most agents either skip them
 
 - **XI-01 Stripe test checkout.** Fixture demo store using Stripe Elements (we host a tiny Next.js fixture). Complete checkout with card `4242 4242 4242 4242`, exp 12/30, CVC 123, ZIP 12345. Reach payment confirmation. Verifier: page text contains `Payment successful` + order ID matches Stripe API record.
 - **XI-02 Stripe 3DS challenge.** Same demo store; card `4000 0027 6000 3184` (3DS required). Complete the 3DS popup; reach confirmation. Verifier: as above.
-- **XI-03 Calendly booking.** Site: `calendly.com/wp-bench-fixture/30min` (we own this event). Book next Friday at 2pm ET; name `Test User`; email `test@fixture.test`. Verifier: Calendly API confirms booking with matching email + slot.
-- **XI-04 OAuth sign-in.** Fixture OAuth-protected app we host (`oauth.wpbench.example`). Sign in via "Sign in with GitHub". Reach the `logged in as <user>` page. Verifier: app session log records successful auth from the test GitHub account.
+- **XI-03 Calendly booking.** Site: `calendly.com/vimx-bench-fixture/30min` (we own this event). Book next Friday at 2pm ET; name `Test User`; email `test@fixture.test`. Verifier: Calendly API confirms booking with matching email + slot.
+- **XI-04 OAuth sign-in.** Fixture OAuth-protected app we host (`oauth.vimxbench.example`). Sign in via "Sign in with GitHub". Reach the `logged in as <user>` page. Verifier: app session log records successful auth from the test GitHub account.
 
 ## Task schema
 
-Each task is a JSON object compatible with BU-Bench's `confirmed_task` shape, with WP-Bench extension fields the harness picks up via the existing task-loading path.
+Each task is a JSON object compatible with BU-Bench's `confirmed_task` shape, with Vimx Bench extension fields the harness picks up via the existing task-loading path.
 
 ```json
 {
   "task_id": "LBF-01",
-  "category": "WP-Bench/LBF",
+  "category": "Vimx Bench/LBF",
   "confirmed_task": "Complete a federal tax return on freetaxusa.com for taxpayer profile [JSON]. Reach the page that displays the refund or owed amount. Do not file.",
   "start_url": "https://www.freetaxusa.com/",
   "fixture": {
@@ -187,33 +187,33 @@ Both go in the writeup; mean-of-3 is the headline number we cite externally.
 
 | Agent | Version | Browser backend | Model |
 |---|---|---|---|
-| **webpilot** | current `main` | local headful via CDP (existing webpilot path) | claude-sonnet-4-6 |
+| **vimx** | current `main` | local headful via CDP (existing vimx path) | claude-sonnet-4-6 |
 | **Playwright-MCP** | latest `@playwright/mcp` | bundled | claude-sonnet-4-6 |
 | **browser-use** | 0.11.5 (current vendored version) | browser-use cloud | bu-2-0 (default) AND claude-sonnet-4-6 (parity) |
 | **Stagehand** | latest | bundled Playwright | claude-sonnet-4-6 |
 | **Computer Use** | Anthropic computer-use tool | local headful | claude-sonnet-4-6 |
 
-**Model parity matters.** webpilot, Playwright-MCP, Stagehand, and Computer Use all run on claude-sonnet-4-6 — same brain, different bodies. browser-use is reported twice: once on its default bundled model (ecosystem reference) and once on claude-sonnet-4-6 (head-to-head). If the bundled model dominates, that's a model-stack story, not an abstraction story; we want both numbers.
+**Model parity matters.** vimx, Playwright-MCP, Stagehand, and Computer Use all run on claude-sonnet-4-6 — same brain, different bodies. browser-use is reported twice: once on its default bundled model (ecosystem reference) and once on claude-sonnet-4-6 (head-to-head). If the bundled model dominates, that's a model-stack story, not an abstraction story; we want both numbers.
 
 ## Harness — what BU-Bench needs
 
-BU-Bench already supports webpilot (`webpilot_eval.py`), Playwright-MCP (`playwright_eval.py`), and browser-use (built-in). To run WP-Bench v1 we add:
+BU-Bench already supports vimx (`vimx_eval.py`), Playwright-MCP (`playwright_eval.py`), and browser-use (built-in). To run Vimx Bench v1 we add:
 
-1. **New task loader.** Today `run_eval.py:91` loads `BU_Bench_V1.enc` via Fernet (key `b"BU_Bench_V1"`). Add `--task-set wp-bench-v1` flag that loads `wp_bench_v1_tasks.json` (plaintext; no contamination concern — these tasks are novel and we want them indexed by future models so the benchmark stays honest if it stays public).
+1. **New task loader.** Today `run_eval.py:91` loads `BU_Bench_V1.enc` via Fernet (key `b"BU_Bench_V1"`). Add `--task-set vimx-bench-v1` flag that loads `wp_bench_v1_tasks.json` (plaintext; no contamination concern — these tasks are novel and we want them indexed by future models so the benchmark stays honest if it stays public).
 2. **Verifier dispatch.** New module `BU-Bench/verifiers/__init__.py`: `def verify(task, trace) -> bool`. Switches on `task["verifier"]["kind"]`. Replaces the current judge-only path when a task declares a programmatic verifier; falls back to the existing gemini-judge for `kind: llm_judge`.
 3. **Fixture lifecycle.** New module `BU-Bench/fixtures/`. For `kind: seeded` tasks, run a setup script before each attempt (idempotent per workspace state) and tear-down after.
-4. **Stagehand adapter.** New `stagehand_eval.py` parallel to `webpilot_eval.py`.
+4. **Stagehand adapter.** New `stagehand_eval.py` parallel to `vimx_eval.py`.
 5. **Computer Use adapter.** New `computer_use_eval.py`. Uses Anthropic's computer-use tool against the same headful Chrome instance.
 6. **Action budget + wall-clock budget enforcement.** Today `TASK_TIMEOUT = 1800` (`run_eval.py:46`) is a global. Switch to per-task `wall_clock_budget_s` from the task spec. Action budget enforced by counting agent.history steps and aborting via the existing `asyncio.wait_for` wrapper.
 7. **Failure attribution post-pass.** After each run, a second gemini call categorizes failures into the 7-category schema above. New field on the saved trace JSON.
 
-LOC estimate: ~600 net across `run_eval.py`, two new adapter files, the verifiers module, and the fixtures module. No changes to existing `webpilot_eval.py` / `playwright_eval.py` / browser providers.
+LOC estimate: ~600 net across `run_eval.py`, two new adapter files, the verifiers module, and the fixtures module. No changes to existing `vimx_eval.py` / `playwright_eval.py` / browser providers.
 
 ## Predictions (pre-registered)
 
 These are bets, not summaries. If they're wrong by ≥10pt the writeup admits it.
 
-| Category | webpilot | Playwright-MCP | Stagehand | browser-use (claude) | Computer Use |
+| Category | vimx | Playwright-MCP | Stagehand | browser-use (claude) | Computer Use |
 |---|---|---|---|---|---|
 | Calibration | 100% | 100% | 100% | 100% | 95% |
 | LBF | 75% | 25% | 50% | 60% | 40% |
@@ -223,24 +223,24 @@ These are bets, not summaries. If they're wrong by ≥10pt the writeup admits it
 | HR | 80% | 10% | 35% | 55% | 40% |
 | XI | 75% | 25% | 40% | 55% | 30% |
 
-**Category claim threshold.** webpilot must beat Playwright-MCP by ≥30pt in **≥4 of 6** core categories (excluding calibration). Anything less means we're not a category yet — we ship the data, retract the framing, and iterate.
+**Category claim threshold.** vimx must beat Playwright-MCP by ≥30pt in **≥4 of 6** core categories (excluding calibration). Anything less means we're not a category yet — we ship the data, retract the framing, and iterate.
 
-**Secondary token-economy prediction.** On passed attempts, median total tokens for webpilot is ≤40% of Playwright-MCP's. This is independent of the success-rate claim and is reported separately; it doesn't gate the category framing.
+**Secondary token-economy prediction.** On passed attempts, median total tokens for vimx is ≤40% of Playwright-MCP's. This is independent of the success-rate claim and is reported separately; it doesn't gate the category framing.
 
 ## What this benchmark does NOT prove
 
 - That filtering > VLM in the long run — Computer Use is included as reference, but the comparison is asymmetric (different model surface, different runtime cost). VL/HR/MO categories tilt against pixel-only approaches by design; AH tilts toward them. The bench measures the cells we care about, not a universal verdict.
-- That webpilot wins on multi-session, long-horizon, stateful work (auth churn, MFA, account creation in production environments). That's a separate benchmark — WP-Bench v2 or *Agent Continuity Bench*.
-- That webpilot wins on tasks where the bottleneck is reasoning, not navigation. We deliberately excluded riddle / trivia tasks from BU-Bench V1 (the GAIA / BrowseComp / Pokemon-defiant set) because they don't test the abstraction.
+- That vimx wins on multi-session, long-horizon, stateful work (auth churn, MFA, account creation in production environments). That's a separate benchmark — Vimx Bench v2 or *Agent Continuity Bench*.
+- That vimx wins on tasks where the bottleneck is reasoning, not navigation. We deliberately excluded riddle / trivia tasks from BU-Bench V1 (the GAIA / BrowseComp / Pokemon-defiant set) because they don't test the abstraction.
 
 ## Anti-shenanigans
 
 Real-site benchmarks degrade. Counter-measures:
 
 - **Ground-truth refresh.** Verifier outputs that depend on third-party site state (FEC, GitHub queries, county records) re-resolve at run time when possible. Cached-with-quarterly-refresh otherwise.
-- **Site-blacklist hygiene.** No agent has site-specific instructions or fine-tuned heuristics. If a webpilot release lands a Notion-specific patch and Notion-task numbers jump, that's flagged in the changelog and the task is rotated out of v1.
+- **Site-blacklist hygiene.** No agent has site-specific instructions or fine-tuned heuristics. If a vimx release lands a Notion-specific patch and Notion-task numbers jump, that's flagged in the changelog and the task is rotated out of v1.
 - **Reproducibility.** Each run dumps the full agent trace + screenshots to `BU-Bench/run_data/<run-key>/`. Re-runnable from the trace alone.
-- **Decryption fairness.** Unlike BU-Bench V1, WP-Bench v1 tasks are plaintext. The trade-off: future training data may include them. We accept this — the benchmark is meant to last 6–12 months, after which we cut v2. Contamination resistance is not free; we'd rather have a transparent, reproducible benchmark for the launch window than an encrypted-but-stale one a year out.
+- **Decryption fairness.** Unlike BU-Bench V1, Vimx Bench v1 tasks are plaintext. The trade-off: future training data may include them. We accept this — the benchmark is meant to last 6–12 months, after which we cut v2. Contamination resistance is not free; we'd rather have a transparent, reproducible benchmark for the launch window than an encrypted-but-stale one a year out.
 
 ## Launch sequence
 
@@ -249,7 +249,7 @@ Real-site benchmarks degrade. Counter-measures:
 - **W3.** Pilot: 1 task per category × all 5 agents. Debug verifiers, calibrate action/wall-clock budgets, surface fixture flakiness.
 - **W4.** Full run: 24 × 3 × 5 = **360 attempts**. ~50–80 hours of wall-clock at MAX_CONCURRENT=3; budget a week with retries.
 - **W5.** Analysis + writeup. Per-category breakdown, failure attribution, token-economy supplement, qualitative side-by-side traces for the 6 most diagnostic tasks.
-- **W6.** 60-second video. Same agent, same task, webpilot vs Playwright-MCP, side-by-side. Recommended task: **LBF-01 FreeTaxUSA** — the context counter on Playwright-MCP explodes visibly while webpilot just clicks through the form. The narrative writes itself.
+- **W6.** 60-second video. Same agent, same task, vimx vs Playwright-MCP, side-by-side. Recommended task: **LBF-01 FreeTaxUSA** — the context counter on Playwright-MCP explodes visibly while vimx just clicks through the form. The narrative writes itself.
 - **W7.** Launch: soft → MCP community (Discord/Slack) → HN → X. Lead with "Vimium for AI agents" + the per-category bar chart.
 
 ## Open questions before W1
@@ -257,14 +257,14 @@ Real-site benchmarks degrade. Counter-measures:
 Picked up at the next planning session — flagged here so they don't get lost.
 
 - **Stagehand vs `claude-sonnet-4-6` model.** Stagehand's `observe`/`act` API is closer to filtering than Playwright-MCP's `aria_snapshot`; we may find Stagehand is the closer rival, not Playwright-MCP. If so, the video foil shifts.
-- **Computer Use action budget.** VLM agents take many more actions per task. Capping at the same budget as webpilot may unfairly penalize them. Decision: report both capped and uncapped numbers; flag the cap in the chart legend.
+- **Computer Use action budget.** VLM agents take many more actions per task. Capping at the same budget as vimx may unfairly penalize them. Decision: report both capped and uncapped numbers; flag the cap in the chart legend.
 - **Should browser-use run with their headless cloud OR local headful?** Cloud is their canonical setup; local headful makes the browser comparison fair. Decision: run both; cloud is the headline number for their column, local headful is a footnoted sensitivity check.
-- **Pre-launch dogfooding.** Need 3–5 agent builders running webpilot in production before the public launch. The benchmark proves the gap; design-partner quotes prove it matters. Sequence dogfooding ahead of W7 not after.
+- **Pre-launch dogfooding.** Need 3–5 agent builders running vimx in production before the public launch. The benchmark proves the gap; design-partner quotes prove it matters. Sequence dogfooding ahead of W7 not after.
 
 ## Cross-references
 
 - Internal token-economy backing: [perception-share-of-session-tokens](../findings/perception-share-of-session-tokens.md), [chrome-redundancy-floods-scan-output](../findings/chrome-redundancy-floods-scan-output.md)
 - Internal failure-mode evidence (custom widgets ↔ HR/MO categories): [custom-widget-thrash](../findings/custom-widget-thrash.md)
-- Why we don't ship a "natural-language query" API in webpilot (relevant to harness fairness): [expose-primitives-not-search-engines](../findings/expose-primitives-not-search-engines.md)
+- Why we don't ship a "natural-language query" API in vimx (relevant to harness fairness): [expose-primitives-not-search-engines](../findings/expose-primitives-not-search-engines.md)
 - Internal benchmark methodology principle (for analogy, not direct apply — internal benchmarks are different from external comparison): [benchmarks-validate-principles-decide](../principles/benchmarks-validate-principles-decide.md)
 - Harness home: `../../../BU-Bench/` (sibling repo)

@@ -8,7 +8,7 @@ tags: [scan, token-economy, perception, auto-rescan]
 
 # Perception is ~half the session, and auto-rescan dominates explicit scan
 
-**Claim.** Across the 10 webpilot-dominant cursor sessions, **~49.5% of all bytes are scan-formatted output** — the agent's perception channel. Of that perception spend, only ~25% comes from explicit `scan()` calls; the remaining ~75% comes from the auto-rescan that ships inline with every mutating tool's return. **`press` alone is the largest single byte consumer in any session.**
+**Claim.** Across the 10 vimx-dominant cursor sessions, **~49.5% of all bytes are scan-formatted output** — the agent's perception channel. Of that perception spend, only ~25% comes from explicit `scan()` calls; the remaining ~75% comes from the auto-rescan that ships inline with every mutating tool's return. **`press` alone is the largest single byte consumer in any session.**
 
 **Evidence (measured 2026-05-12).** Full table in [sessions/2026-05-12-token-cost-measurement.md](../sessions/2026-05-12-token-cost-measurement.md). Across 2,323,369 total chars in 10 sessions:
 

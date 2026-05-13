@@ -2,7 +2,7 @@
 
 Resolved the OSS-license question parked in `business.md`. Decision is MIT for v0, with four named triggers for relicense to Apache 2.0: enterprise legal ask, foundation entry (CNCF/LF/ASF), $1M ARR, or large-corp contributor blocked by employer policy. DCO sign-off on all contributions preserves relicense optionality without CLA friction.
 
-Research basis: peer-license matrix at decision time was bimodal — indies (browser-use, Stagehand, Vimium) on MIT; big-company projects (Playwright-MCP, MCP TypeScript SDK) on Apache 2.0. v0 launch posture (indie agent builders, HN audience, max adoption velocity) puts us with the indies. The Apache 2.0 patent-grant value is deferred — enterprise/foundation/large-corp-contributor conversations are the trigger, not the current state. Source-available (BSL/FSL/SSPL) rejected as wrong-frame: pattern fits stateful managed-service businesses defending against AWS clones, not stateless library/server kernels like webpilot. AGPL/MPL 2.0 rejected: AGPL spooks enterprise procurement; MPL 2.0's file-level copyleft conflicts with the "embed in your stack" kernel positioning.
+Research basis: peer-license matrix at decision time was bimodal — indies (browser-use, Stagehand, Vimium) on MIT; big-company projects (Playwright-MCP, MCP TypeScript SDK) on Apache 2.0. v0 launch posture (indie agent builders, HN audience, max adoption velocity) puts us with the indies. The Apache 2.0 patent-grant value is deferred — enterprise/foundation/large-corp-contributor conversations are the trigger, not the current state. Source-available (BSL/FSL/SSPL) rejected as wrong-frame: pattern fits stateful managed-service businesses defending against AWS clones, not stateless library/server kernels like vimx. AGPL/MPL 2.0 rejected: AGPL spooks enterprise procurement; MPL 2.0's file-level copyleft conflicts with the "embed in your stack" kernel positioning.
 
 Pages touched:
 - LICENSE (new — SPDX MIT, Copyright (c) 2026 Łukasz Kryczka)
@@ -14,17 +14,17 @@ Pages touched:
 - wiki/log.md (this entry)
 
 Adjacent decisions captured in the decision page (not separate pages yet):
-- Trademark "webpilot" reserved separately — file intent-to-use USPTO when brand commits.
-- Benchmark license: CC BY 4.0 for WP-Bench task list + writeups (separate artifact from code).
+- Trademark "vimx" reserved separately — file intent-to-use USPTO when brand commits.
+- Benchmark license: CC BY 4.0 for Vimx Bench task list + writeups (separate artifact from code).
 - DCO GitHub App install (github.com/apps/dco) deferred until repo is public.
 
 Calibration note: the original parked answer in business.md was "lean Apache 2.0; defer until first enterprise conversation." Research flipped the lean — the closest functional peers (browser-use, Stagehand) being MIT was the load-bearing data, not the Anthropic-SDK Apache 2.0 signal. First-draft conviction was wrong; the wiki-discipline check (separate research before committing) caught it before it became code.
 
 ## [2026-05-13] backfill | browser-lifecycle + profile-semantics decision
 
-Eight shipped commits (May 12 → May 13) were absent from the wiki — a coherent architectural arc that moved the chromium from "MCP boot spawns it" to "LLM controls it via tools, profile semantics opt-in by env." The wiki had zero references to `browser_open`, `browser_close`, `WEBPILOT_PROFILE_TEMPLATE`, or `WEBPILOT_PROFILE_DIR`. Backfilled as a single decision page rather than per-commit, since they form one design.
+Eight shipped commits (May 12 → May 13) were absent from the wiki — a coherent architectural arc that moved the chromium from "MCP boot spawns it" to "LLM controls it via tools, profile semantics opt-in by env." The wiki had zero references to `browser_open`, `browser_close`, `VIMX_PROFILE_TEMPLATE`, or `VIMX_PROFILE_DIR`. Backfilled as a single decision page rather than per-commit, since they form one design.
 
-Commits covered: `9f6f7a6` (auto-spawn per MCP server) → `17deedf` (`browser_open`/`browser_close` tools) → `2a1043e` (`WEBPILOT_PROFILE_DIR`) → `ff739fc` (`WEBPILOT_PROFILE_TEMPLATE`) → `6c8d70f` (stale-dir sweep) → `49d66d3` (attach-liveness fix via `/proc/cmdline` rather than CDP probe). Dev-side commits `463a4dc` + `3815a87` (per-worktree cwt hooks) referenced as supporting the attach branch.
+Commits covered: `9f6f7a6` (auto-spawn per MCP server) → `17deedf` (`browser_open`/`browser_close` tools) → `2a1043e` (`VIMX_PROFILE_DIR`) → `ff739fc` (`VIMX_PROFILE_TEMPLATE`) → `6c8d70f` (stale-dir sweep) → `49d66d3` (attach-liveness fix via `/proc/cmdline` rather than CDP probe). Dev-side commits `463a4dc` + `3815a87` (per-worktree cwt hooks) referenced as supporting the attach branch.
 
 Pages touched:
 - wiki/decisions/browser-lifecycle-and-profile-semantics.md (new)
@@ -33,26 +33,26 @@ Pages touched:
 
 Calibration note: this is a wiki-discipline miss worth flagging. The wiki's stated job (per wiki/CLAUDE.md) is "every page belongs to one of [hypothesis → finding → decision → principle] stages" — a decisions/ entry per shipped feature is the load-bearing claim. Eight commits without a corresponding decision page is the kind of drift the lint workflow should catch. Filing the backfill itself, not just the decision, so the gap is visible in the log.
 
-## [2026-05-13] plan | WP-Bench v1 spec + private business doc
+## [2026-05-13] plan | Vimx Bench v1 spec + private business doc
 
 Drafted the public-launch benchmark spec and the internal strategy doc. The benchmark is a new artifact category (external comparison, not internal tool-iteration measurement); filed under `wiki/launch/` to keep it separate from the existing `wiki/benchmarks/` perf record. Pre-registered predictions, pre-committed retraction threshold, and a 7-week W1→W7 launch sequence anchored on the BU-Bench harness (sibling repo).
 
 The business doc is gitignored — strategy, GTM, indie-vs-venture decision gate at month 6. Not for public repos; lives in the wiki for the same reason source-of-truth docs do, with a `wiki/business.md` line in `.gitignore` to keep it private.
 
 Pages touched:
-- wiki/launch/wp-bench-v1.md (new — type: benchmark, status: planned)
+- wiki/launch/vimx-bench-v1.md (new — type: benchmark, status: planned)
 - wiki/business.md (new, gitignored — type: strategy)
 - .gitignore (added `wiki/business.md`)
-- wiki/index.md (new Launch section linking wp-bench-v1)
+- wiki/index.md (new Launch section linking vimx-bench-v1)
 - wiki/log.md (this entry)
 
 Open questions parked in the spec: Stagehand may be the closer rival than Playwright-MCP (pending pilot); Computer Use action budget needs both capped/uncapped numbers; browser-use cloud vs local-headful for fairness; design-partner sequencing ahead of HN launch.
 
-Decision gate: if WP-Bench v1 shows ≤10pt gap vs Playwright-MCP in ≥3 categories, the category framing is retracted. The spec includes that as a pre-commitment, not a hedging clause.
+Decision gate: if Vimx Bench v1 shows ≤10pt gap vs Playwright-MCP in ≥3 categories, the category framing is retracted. The spec includes that as a pre-commitment, not a hedging clause.
 
 ## [2026-05-12] ingest | cursor-export 17-session analysis + AI-native philosophy pushback
 
-Two-pass analysis of 17 cursor session transcripts (7 playwright-dominant, 10 webpilot-dominant) covering matched task families. Pass 1 mapped the agent's perception→plan→act→perceive loop on both tools and enumerated 12 structural flaws. Pass 2 was a philosophy exchange with the project owner: pushback on "agent needs 0 web knowledge" (refined to *0 implementation knowledge, full semantic knowledge*), plus 8 ranked hypotheses.
+Two-pass analysis of 17 cursor session transcripts (7 playwright-dominant, 10 vimx-dominant) covering matched task families. Pass 1 mapped the agent's perception→plan→act→perceive loop on both tools and enumerated 12 structural flaws. Pass 2 was a philosophy exchange with the project owner: pushback on "agent needs 0 web knowledge" (refined to *0 implementation knowledge, full semantic knowledge*), plus 8 ranked hypotheses.
 
 Source: `~/Projects/cursor-export/exported/cursor-session-*.md` (17 files). Conversation: claude-code current session.
 
@@ -141,7 +141,7 @@ Calibration note: bench scripts should read CDP_PORT from `.mcp.json` rather tha
 
 ## [2026-05-12] refute | find(query) hypothesis based on owner's prior experience
 
-Started implementing `find(query)` per the hypothesis. Owner stopped mid-implementation: webpilot previously shipped a `query` tool with this same API shape, and agents made too-narrow / semantic-style calls (treating it as a search engine that should understand intent). The owner pivoted to `read({regex})` precisely because of that failure pattern.
+Started implementing `find(query)` per the hypothesis. Owner stopped mid-implementation: vimx previously shipped a `query` tool with this same API shape, and agents made too-narrow / semantic-style calls (treating it as a search engine that should understand intent). The owner pivoted to `read({regex})` precisely because of that failure pattern.
 
 The shape of a "natural-language query" API invites semantic-search-style misuse regardless of how the implementation does matching. Substring matching can't satisfy `query("button to add product to cart")` — the agent concludes the tool is broken.
 
@@ -154,7 +154,7 @@ Pages touched:
 - wiki/index.md (hypothesis ranking note; new finding listed)
 - wiki/log.md (this entry)
 
-Two narrower follow-ups identified for the original "agents abandon webpilot for curl" symptom — both improvements to existing primitives, not new tools:
+Two narrower follow-ups identified for the original "agents abandon vimx for curl" symptom — both improvements to existing primitives, not new tools:
 1. Improve `read({regex})` tool description to lean into "find content" framing.
 2. Surface site-internal search affordances in scan output when `<input type="search">` / `[role="search"]` exist.
 
@@ -171,7 +171,7 @@ Iteration v2 was queued (filter to visible captcha challenges, add CMP iframe pa
 
 > "look realistically. we skip cookies/captchas for this iteration of the tool. its not relevant until the tool is better/cheaper than playwright"
 
-Calibration: page-state meta-detection is polish — useful when the tool's core UX is already ahead. The axes that widen the webpilot-vs-Playwright gap are token economy (won via dedup), reliability on common actions (won via anomaly-flag + clearField), affordance-typed structural correctness, and speed. Cookie detection doesn't move any of those.
+Calibration: page-state meta-detection is polish — useful when the tool's core UX is already ahead. The axes that widen the vimx-vs-Playwright gap are token economy (won via dedup), reliability on common actions (won via anomaly-flag + clearField), affordance-typed structural correctness, and speed. Cookie detection doesn't move any of those.
 
 Bench artifacts preserved (audit/page-state-detector-bench.mts, audit/page-state-inspect.mts, audit/data/page-state-detector/) — pickable if we ever return.
 
@@ -188,7 +188,7 @@ Bench scripts kept untracked for now (no commit) until we decide whether they sh
 
 Bench-driven loop on hypothesis #3 (page-state-diff-in-action-returns), reframed to "tool refuses silent failure" — three anomaly heuristics across `type` / `toggle` / `select`. Bench: 4/4 PASS including 0 false positives on 8 real-site search-bar typings.
 
-**Bigger surprise**: the bench discovered `cdpSelectAll` had been silently broken since written. CDP modifier `8` is Shift, not Ctrl — `cdpSelectAll` dispatched `Shift+a` (capital A) instead of `Ctrl+A`. Every `type(clear:true)` on a non-empty field actually produced `prior + typed`. Agents never noticed because most types target empty search bars where `clear` is a no-op. **This was the actual root cause of the Forms session 8bbfd98a "Option AOption 1" shipped-broken case** — not a controlled-component edge case, just a webpilot bug.
+**Bigger surprise**: the bench discovered `cdpSelectAll` had been silently broken since written. CDP modifier `8` is Shift, not Ctrl — `cdpSelectAll` dispatched `Shift+a` (capital A) instead of `Ctrl+A`. Every `type(clear:true)` on a non-empty field actually produced `prior + typed`. Agents never noticed because most types target empty search bars where `clear` is a no-op. **This was the actual root cause of the Forms session 8bbfd98a "Option AOption 1" shipped-broken case** — not a controlled-component edge case, just a vimx bug.
 
 Fix: replaced `cdpSelectAll + cdpBackspace` with `clearField()` — DOM-side native value setter call dispatched as input+change. Works against controlled React/Vue components via prototype descriptor.
 
@@ -254,7 +254,7 @@ Pages touched:
 - wiki/hypotheses/stateful-scan-chrome-dedup.md (status: open → confirmed)
 - wiki/index.md (hypothesis ranking updated, new benchmark+decision listed)
 
-Default on (`WEBPILOT_SCAN_DEDUP=0` to disable).
+Default on (`VIMX_SCAN_DEDUP=0` to disable).
 
 Notes for future revisits:
 - Coverage bug fix mid-implementation: position fallback was gated behind `regs.length < 2`, which prevented `main` synthesis on Amazon-shape pages (many navs, no `<main>`). Moved the synthesize-main step out of the gate. Caught only by post-change regression check, not the B0 benchmark — emphasizing that detector quality and assignment-coverage are different things.
@@ -272,11 +272,11 @@ Pages touched:
 
 Open benchmarks (deferred to implementation phase):
 - B1 cache-key choice (Q4): URL path vs. template-detected prefix vs. full URL — LinkedIn-messaging-shaped cases motivate the test
-- B2 post-action dedup (Q8): always-dedup vs. never vs. chrome-only — before/after token measurement on the 10 webpilot session tasks
+- B2 post-action dedup (Q8): always-dedup vs. never vs. chrome-only — before/after token measurement on the 10 vimx session tasks
 
-## [2026-05-12] ingest | token-cost measurement on 10 webpilot sessions
+## [2026-05-12] ingest | token-cost measurement on 10 vimx sessions
 
-Primary-source byte breakdown of where tokens actually go in webpilot usage. Replaced prior estimates ("50-100k redundant tokens", "~140 sidebar repeats") with measured numbers. Source: regex over the same 10 webpilot-dominant cursor session exports analyzed in the prior ingest; conversation thread did the measurement and analysis.
+Primary-source byte breakdown of where tokens actually go in vimx usage. Replaced prior estimates ("50-100k redundant tokens", "~140 sidebar repeats") with measured numbers. Source: regex over the same 10 vimx-dominant cursor session exports analyzed in the prior ingest; conversation thread did the measurement and analysis.
 
 Key numbers (across 2.32M total chars in 10 sessions):
 - ~50% of all session bytes are scan-formatted output

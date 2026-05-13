@@ -118,14 +118,14 @@ export async function ensureBrowser(port: number): Promise<void> {
 //   1. CDP_TARGET set: attach to a remote websocket. Caller manages lifetime.
 //   2. CDP_PORT set: attach to a local Chrome on that port. Started outside
 //      this process (e.g. scripts/dev-chrome.sh), so we don't kill it.
-//   3. WEBPILOT_PROFILE_TEMPLATE set: clone the template dir to an
+//   3. VIMX_PROFILE_TEMPLATE set: clone the template dir to an
 //      MCP-server-scoped /tmp dir on first open and reuse it across
 //      open/close cycles. Each MCP server gets its own clone, so two
 //      agents can run simultaneously with the same logged-in starting
 //      state without fighting over chromium's per-user-data-dir
 //      singleton lock. Cookies acquired mid-session persist across
 //      open/close within the MCP lifetime, then die with the server.
-//   4. WEBPILOT_PROFILE_DIR set: use that dir directly, no copy.
+//   4. VIMX_PROFILE_DIR set: use that dir directly, no copy.
 //      Persists across MCP restarts but cannot be shared across MCP
 //      servers concurrently. Best for "one debug browser I keep
 //      around." If chromium is already running against the dir we
@@ -134,7 +134,7 @@ export async function ensureBrowser(port: number): Promise<void> {
 //
 // Under SIGKILL of the MCP server the spawned chromium would otherwise
 // become an orphan holding the profile dir. sweepStaleProfiles() handles
-// this: every dir we create has a webpilot.pid file with our pid, and on
+// this: every dir we create has a vimx.pid file with our pid, and on
 // next MCP boot we sweep dirs whose owner is dead, killing any orphan
 // chromium found there.
 
@@ -145,15 +145,15 @@ interface BrowserHandle {
 
 let currentHandle: BrowserHandle | null = null;
 
-// Lazily cloned from WEBPILOT_PROFILE_TEMPLATE on first browser_open.
+// Lazily cloned from VIMX_PROFILE_TEMPLATE on first browser_open.
 // Held for the MCP server's lifetime so successive open/close cycles
 // reuse the same cookies; wiped by syncShutdownCurrent() on MCP exit.
 let templateClone: string | null = null;
 
 // Sweep runs once per MCP server lifetime, on first browser_open. SIGKILLed
-// MCP servers can't run their cleanup paths, leaving /tmp/webpilot-mcp-*
+// MCP servers can't run their cleanup paths, leaving /tmp/vimx-mcp-*
 // dirs (and sometimes orphan chromiums) behind. Each dir we own holds a
-// webpilot.pid file with our MCP server pid; on sweep, dirs whose pid is
+// vimx.pid file with our MCP server pid; on sweep, dirs whose pid is
 // dead get their orphan chromium killed (verified via /proc/<pid>/cmdline
 // to avoid pid-recycle disasters) and the dir wiped. Dirs without a pid
 // file are treated as predating this feature and also swept.
@@ -168,12 +168,12 @@ function sweepStaleProfiles(): void {
   try { entries = readdirSync(tmp); } catch { return; }
 
   for (const name of entries) {
-    if (!name.startsWith("webpilot-mcp-")) continue;
+    if (!name.startsWith("vimx-mcp-")) continue;
     const dir = join(tmp, name);
 
     let ownerAlive = false;
     try {
-      const pid = parseInt(readFileSync(join(dir, "webpilot.pid"), "utf8").trim(), 10);
+      const pid = parseInt(readFileSync(join(dir, "vimx.pid"), "utf8").trim(), 10);
       if (Number.isFinite(pid) && pid > 0) {
         try { process.kill(pid, 0); ownerAlive = true; } catch { /* ESRCH = dead */ }
       }
@@ -190,7 +190,7 @@ function sweepStaleProfiles(): void {
 }
 
 function writeOwnershipPid(dir: string): void {
-  try { writeFileSync(join(dir, "webpilot.pid"), String(process.pid)); } catch {}
+  try { writeFileSync(join(dir, "vimx.pid"), String(process.pid)); } catch {}
 }
 
 // Returns the pid of a live chromium currently holding profileDir, or null if
@@ -215,19 +215,19 @@ function getChromiumPidOwning(profileDir: string): number | null {
 }
 
 function ensureTemplateClone(): string | null {
-  const template = process.env.WEBPILOT_PROFILE_TEMPLATE;
+  const template = process.env.VIMX_PROFILE_TEMPLATE;
   if (!template) return null;
   if (templateClone) return templateClone;
 
   if (!existsSync(template)) {
-    throw new Error(`WEBPILOT_PROFILE_TEMPLATE='${template}' does not exist`);
+    throw new Error(`VIMX_PROFILE_TEMPLATE='${template}' does not exist`);
   }
-  const dir = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+  const dir = mkdtempSync(join(tmpdir(), "vimx-mcp-"));
   try {
     cpSync(template, dir, { recursive: true, preserveTimestamps: true, dereference: false });
   } catch (e) {
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
-    throw new Error(`Failed to clone WEBPILOT_PROFILE_TEMPLATE: ${e instanceof Error ? e.message : e}`);
+    throw new Error(`Failed to clone VIMX_PROFILE_TEMPLATE: ${e instanceof Error ? e.message : e}`);
   }
   // The template may carry stale lock state if the user pre-launched
   // chromium against it (e.g. for the initial Google login); strip so
@@ -277,7 +277,7 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
   sweepStaleProfiles();
 
   const cloned = ensureTemplateClone();
-  const persistDir = cloned ? null : process.env.WEBPILOT_PROFILE_DIR;
+  const persistDir = cloned ? null : process.env.VIMX_PROFILE_DIR;
   let profile: string;
   let ephemeral: boolean;
   if (cloned) {
@@ -317,7 +317,7 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
       try { rmSync(join(profile, f), { force: true }); } catch {}
     }
   } else {
-    profile = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+    profile = mkdtempSync(join(tmpdir(), "vimx-mcp-"));
     writeOwnershipPid(profile);
     ephemeral = true;
   }
@@ -506,7 +506,7 @@ export async function evaluateInFrame(
   // Create an isolated world in the frame to evaluate our expression
   const { executionContextId } = await client.Page.createIsolatedWorld({
     frameId,
-    worldName: "webpilot-scanner",
+    worldName: "vimx-scanner",
     grantUniveralAccess: true, // CDP protocol typo — leave as-is
   });
 

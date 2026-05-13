@@ -44,7 +44,7 @@ This is `affordance-grouping-over-dom-hierarchy` and `abstract-mechanics-not-goa
 
 - **Always emit full** (current legacy behavior). Rejected by 20-site benchmark: 83-89% token savings is too large to leave on the table.
 
-**Source.** Shipped 2026-05-12. Default-on via `WEBPILOT_SCAN_DEDUP=1` (default); disable for A/B testing via `=0`. Benchmark scripts: `audit/region-detector-b0.mts`, `audit/dedup-v1-bench.mts`.
+**Source.** Shipped 2026-05-12. Default-on via `VIMX_SCAN_DEDUP=1` (default); disable for A/B testing via `=0`. Benchmark scripts: `audit/region-detector-b0.mts`, `audit/dedup-v1-bench.mts`.
 
 ## Post-ship refinements (2026-05-12)
 

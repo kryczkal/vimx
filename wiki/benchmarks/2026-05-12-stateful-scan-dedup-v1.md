@@ -61,7 +61,7 @@ Single regression: x.com/explore with 123 chars of full output grew to 157 chars
 2. **Server-side scan cache** in `src/index.ts`: `Map<urlPath, ScanState>` with LRU bound (20 URLs). Element signatures keyed by id; signature includes affordance, tag, label, href, value, checked, region.
 3. **Dedup formatter** `formatScanResultDedup`: emits new/changed entries in full + per-region summary of unchanged elements with compact id ranges.
 4. **Cache invalidation on `navigate()`**: explicit navigate resets the cache for the target URL so the agent always gets fresh full output after a navigation.
-5. **Default-on** via env var `WEBPILOT_SCAN_DEDUP=1` (default) / `=0` (legacy NEW: delta).
+5. **Default-on** via env var `VIMX_SCAN_DEDUP=1` (default) / `=0` (legacy NEW: delta).
 
 ## What was not implemented
 

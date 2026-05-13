@@ -1,22 +1,22 @@
 {
-  "name": "webpilot",
+  "name": "vimx",
   "version": "0.1.0",
   "description": "MCP server giving AI agents Vimium-like browser control via Chrome DevTools Protocol — affordance-typed actions over filtered, hit-tested element refs.",
   "license": "MIT",
   "author": "Łukasz Kryczka <lukasz.kryczka000@gmail.com>",
-  "homepage": "https://github.com/kryczkal/webpilot#readme",
+  "homepage": "https://github.com/kryczkal/vimx#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kryczkal/webpilot.git"
+    "url": "git+https://github.com/kryczkal/vimx.git"
   },
   "bugs": {
-    "url": "https://github.com/kryczkal/webpilot/issues"
+    "url": "https://github.com/kryczkal/vimx/issues"
   },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "webpilot": "dist/index.js"
+    "vimx": "dist/index.js"
   },
   "files": [
     "dist",

@@ -11,7 +11,7 @@ tags: [scan, design, affordance, type-system]
 
 **Why this persists across pivots.** The agent's atomic act is *deciding what to do next*. The scan output's job is to make that decision easy. Affordance groups present elements pre-filtered to the actions the agent is choosing between — eliminating the "what kind of element is this, what verb should I use" step. Playwright sessions show what happens without it: agents drop into `evaluate(...)` to probe element shapes (`for (const r of ['menuitem','menuitemcheckbox','option','listitem'])`) before they can act. Reasoning quality drops immediately.
 
-The data is unambiguous: agents pick the right verb when the group makes the affordance explicit. The toggle/select/press confusion that Playwright sessions show is mostly absent in webpilot.
+The data is unambiguous: agents pick the right verb when the group makes the affordance explicit. The toggle/select/press confusion that Playwright sessions show is mostly absent in vimx.
 
 **Concrete present-day expressions.**
 - `scan()` groups output under PRESS / TYPE / SELECT / TOGGLE headers.
@@ -27,4 +27,4 @@ The data is unambiguous: agents pick the right verb when the group makes the aff
 - The right move is *refining classification* (detect `aria-haspopup`, `aria-expanded`, `role="combobox"` and route to a `select`/keyboard-aware affordance), not *abandoning the principle*.
 - If a single element has multiple affordances (e.g. a contenteditable that can be both pressed and typed into), the scanner has to surface that — possibly by listing the element in multiple groups with an explanatory tag. Open design question.
 
-**Source.** Confirmed by the 2026-05-12 analysis ("Webpilot wins for the common case... affordance grouping IS the type system. The auto-rescan kills a whole class of stale-state bugs."). One of the foundations of the project per `CLAUDE.md`: "Affordance-typed tools: press/type/select/toggle — structurally impossible to misuse."
+**Source.** Confirmed by the 2026-05-12 analysis ("Vimx wins for the common case... affordance grouping IS the type system. The auto-rescan kills a whole class of stale-state bugs."). One of the foundations of the project per `CLAUDE.md`: "Affordance-typed tools: press/type/select/toggle — structurally impossible to misuse."

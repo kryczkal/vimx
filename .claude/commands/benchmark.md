@@ -1,6 +1,6 @@
 # /benchmark — Test a change against real websites
 
-You just made a change to webpilot. Now prove it works.
+You just made a change to vimx. Now prove it works.
 
 ## What to do
 

@@ -9,7 +9,7 @@ tags: [scan, token-economy]
 
 ## Confirmed 2026-05-12
 
-Shipped. Default-on (`WEBPILOT_SCAN_DEDUP=0` to disable). Measured outcome on 20 sites ([benchmark](../benchmarks/2026-05-12-stateful-scan-dedup-v1.md)):
+Shipped. Default-on (`VIMX_SCAN_DEDUP=0` to disable). Measured outcome on 20 sites ([benchmark](../benchmarks/2026-05-12-stateful-scan-dedup-v1.md)):
 - **idle re-scan: −82.9%** avg token reduction
 - **post-action re-scan: −88.7%** avg token reduction
 - aggregate: ~104k of ~108k chars saved on the sample
@@ -27,7 +27,7 @@ Implementation in [decisions/stateful-scan-with-region-dedup.md](../decisions/st
 
 **Scope.** The dedup must apply to ALL scan-emitting tools, not just `scan()`. Per [perception-share-of-session-tokens](../findings/perception-share-of-session-tokens.md), explicit `scan()` is only ~25% of perception bytes; the remaining ~75% lives inside action returns. A dedup scoped to `scan()` alone caps savings at ~12% of total session bytes; the wider scope caps at ~50%.
 
-**Mechanism.** Hash element lists by semantic region (header / main / sidebar / footer — orthogonal to [semantic-landmark-grouping](semantic-landmark-grouping.md)). On every scan-formatted emission, compare regions to the last cached state for this URL; emit unchanged regions as collapsed markers, changed regions in full. Elements that aren't re-emitted remain referencable by id (the `__webpilot[]` store is unaffected).
+**Mechanism.** Hash element lists by semantic region (header / main / sidebar / footer — orthogonal to [semantic-landmark-grouping](semantic-landmark-grouping.md)). On every scan-formatted emission, compare regions to the last cached state for this URL; emit unchanged regions as collapsed markers, changed regions in full. Elements that aren't re-emitted remain referencable by id (the `__vimx[]` store is unaffected).
 
 Cache invalidates on:
 - Navigation to a different URL (most cases).
@@ -43,7 +43,7 @@ Knock-on: fewer redundant tokens in context → less token pressure → fewer do
 
 **How to test.**
 1. Implement behind a flag, scoped to all scan-emitting tools.
-2. Re-run the 10 webpilot-dominant cursor session tasks on both modes (`--stateful` vs baseline).
+2. Re-run the 10 vimx-dominant cursor session tasks on both modes (`--stateful` vs baseline).
 3. Measure (using the same measurement script in the source artifact):
    - Total scan-output bytes per session.
    - Per-tool result-size distribution (`press`/`navigate`/`scroll`/explicit-scan).

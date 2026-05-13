@@ -1,4 +1,4 @@
-# webpilot wiki — operating manual
+# vimx wiki — operating manual
 
 This wiki accumulates the project's knowledge as it iterates: hypotheses about agent UX, session analyses, benchmark findings, design decisions in code, and durable meta-principles. Its primary purpose is to stay honest about what we currently believe vs. what's gone stale — the tool evolves fast, and most claims have a half-life.
 
@@ -6,7 +6,7 @@ The general pattern is in `IDEA.md`. This file is the project-specific instantia
 
 ## Domain
 
-webpilot is an AI-agent-native MCP server for browser automation. The iteration loop is:
+vimx is an AI-agent-native MCP server for browser automation. The iteration loop is:
 
   **hypothesis → test (session analysis or benchmark) → finding → decision (in code) → sometimes a principle**
 

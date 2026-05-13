@@ -6,7 +6,7 @@
 // document including content below the fold.
 //
 // For each site we count, per <a href> element in the DOM:
-//   in_scan       — the same element ref is in window.__webpilot[] after a scan
+//   in_scan       — the same element ref is in window.__vimx[] after a scan
 //   visible_now   — its bounding rect intersects the current viewport
 //   cross_origin  — its absolute URL has a different origin than the page
 //   has_text      — its visible innerText (trim) is ≥2 chars
@@ -28,7 +28,7 @@ const CDP_PORT = parseInt(process.env.CDP_PORT || "9222", 10);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PROBE_JS = `(() => {
-  const wp = window.__webpilot || {};
+  const wp = window.__vimx || {};
   const inScan = new Set();
   for (const k of Object.keys(wp)) inScan.add(wp[k]);
 

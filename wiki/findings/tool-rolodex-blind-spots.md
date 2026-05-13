@@ -8,10 +8,10 @@ tags: [tool-use, hover, key, expand, agent-loop]
 
 # Tool-rolodex blind spots
 
-**Claim.** Even when the right webpilot tool exists for a situation, agents systematically don't reach for it. The default toolbelt is `press / type / scan / read / navigate`. Everything else (`hover`, `key`, `expand`, `select` on non-`<select>`) is a last resort, often discovered only after several failures.
+**Claim.** Even when the right vimx tool exists for a situation, agents systematically don't reach for it. The default toolbelt is `press / type / scan / read / navigate`. Everything else (`hover`, `key`, `expand`, `select` on non-`<select>`) is a last resort, often discovered only after several failures.
 
 **Evidence.**
-- `hover` is almost never used across the 10 webpilot sessions — even on pages with explicitly hover-revealed UI (Amazon row-actions, flight-result detail overlays). Vimium's whole *raison d'être* (revealing hover-only menus) is unexercised.
+- `hover` is almost never used across the 10 vimx sessions — even on pages with explicitly hover-revealed UI (Amazon row-actions, flight-result detail overlays). Vimium's whole *raison d'être* (revealing hover-only menus) is unexercised.
 - `key` is used reactively for `escape` after a modal is in the agent's face; it's almost never used *proactively* for keyboard navigation in custom widgets until everything else has been tried. See [custom-widget-thrash](custom-widget-thrash.md).
 - `expand` is mentioned by name in scan output (`... N more — scroll() or expand("label")`) but agents still try `scroll` first roughly half the time.
 - `select` is sometimes invoked on non-`<select>` elements (Google Forms listbox in d1f51c1a). The error response is clean but the attempt itself is a wasted turn.

@@ -325,10 +325,10 @@ export const SCANNER_JS = `(() => {
     return id;
   }
 
-  window.__webpilot = {};
-  window.__webpilotRects = {};
-  window.__webpilotLabels = {};
-  window.__webpilotAffordances = {};
+  window.__vimx = {};
+  window.__vimxRects = {};
+  window.__vimxLabels = {};
+  window.__vimxAffordances = {};
 
   // Track scroll containers and their off-screen item counts for annotations
   const scrollContainerCounts = new Map();
@@ -541,13 +541,13 @@ export const SCANNER_JS = `(() => {
       }
     }
 
-    window.__webpilot[id] = el;
-    window.__webpilotRects[id] = {
+    window.__vimx[id] = el;
+    window.__vimxRects[id] = {
       x: r.left + r.width / 2,
       y: r.top + r.height / 2,
     };
-    window.__webpilotLabels[id] = label;
-    window.__webpilotAffordances[id] = affordance;
+    window.__vimxLabels[id] = label;
+    window.__vimxAffordances[id] = affordance;
 
     // Tag elements inside scroll containers for annotation grouping
     const sp = getScrollParent(el);
@@ -587,7 +587,7 @@ export const SCANNER_JS = `(() => {
       let resolved = false;
       var contexts = [];
       for (var di = 0; di < dupes.length; di++) {
-        var el = window.__webpilot[dupes[di].id];
+        var el = window.__vimx[dupes[di].id];
         if (!el || el.__frameElement) { contexts.push(null); continue; }
         var node = el;
         var boundary = null;
@@ -649,7 +649,7 @@ export const SCANNER_JS = `(() => {
             // This position has unique values across all duplicates
             for (var di = 0; di < dupes.length; di++) {
               dupes[di].label = label + " [" + vals[di] + "]";
-              window.__webpilotLabels[dupes[di].id] = dupes[di].label;
+              window.__vimxLabels[dupes[di].id] = dupes[di].label;
             }
             resolved = true;
             break;
@@ -660,7 +660,7 @@ export const SCANNER_JS = `(() => {
       // Fallback: simple ancestor text (no sibling comparison)
       if (!resolved) {
         for (var di = 0; di < dupes.length; di++) {
-          var el = window.__webpilot[dupes[di].id];
+          var el = window.__vimx[dupes[di].id];
           if (!el || el.__frameElement) continue;
           var node = el.parentElement;
           var depth = 0;
@@ -680,7 +680,7 @@ export const SCANNER_JS = `(() => {
         if (ancs.every(Boolean) && Object.keys(ancSet).length === dupes.length) {
           for (var di = 0; di < dupes.length; di++) {
             dupes[di].label = label + " [" + dupes[di]._anc + "]";
-            window.__webpilotLabels[dupes[di].id] = dupes[di].label;
+            window.__vimxLabels[dupes[di].id] = dupes[di].label;
             delete dupes[di]._anc;
           }
           resolved = true;
@@ -706,7 +706,7 @@ export const SCANNER_JS = `(() => {
             for (let i = 0; i < dupes.length; i++) {
               const suffix = diffs[i].replace(/=.*/, "").substring(0, 30) || diffs[i].substring(0, 30);
               dupes[i].label = label + " (" + (diffs[i].includes("=") ? diffs[i].substring(0, 30) : suffix) + ")";
-              window.__webpilotLabels[dupes[i].id] = dupes[i].label;
+              window.__vimxLabels[dupes[i].id] = dupes[i].label;
             }
             resolved = true;
           }
@@ -717,12 +717,12 @@ export const SCANNER_JS = `(() => {
       // Strategy 3: position index
       for (let i = 0; i < dupes.length; i++) {
         dupes[i].label = label + " (" + (i + 1) + ")";
-        window.__webpilotLabels[dupes[i].id] = dupes[i].label;
+        window.__vimxLabels[dupes[i].id] = dupes[i].label;
       }
     }
   }
 
-  const total = Object.keys(window.__webpilotRects).length;
+  const total = Object.keys(window.__vimxRects).length;
   const pageScrollable = document.documentElement.scrollHeight > innerHeight + 50;
   return {
     url: location.href,
@@ -736,8 +736,8 @@ export const SCANNER_JS = `(() => {
 // Resolves a label string to an element ID. Supports exact, then substring match.
 // If affordanceFilter is set, only matches elements of that affordance type.
 export const RESOLVE_JS = `((query, affordanceFilter) => {
-  const labels = window.__webpilotLabels;
-  const affordances = window.__webpilotAffordances;
+  const labels = window.__vimxLabels;
+  const affordances = window.__vimxAffordances;
   if (!labels) return { error: "not_found", message: "No scan data. Run scan first." };
 
   const q = query.toLowerCase();
@@ -789,19 +789,19 @@ export const RESOLVE_JS = `((query, affordanceFilter) => {
 
 // Returns { x, y } click coordinates for an element, or null if not found.
 export const GET_RECT_JS = `((id) => {
-  return window.__webpilotRects?.[id] ?? null;
+  return window.__vimxRects?.[id] ?? null;
 })`;
 
 // Check if element exists and is connected. Returns tag name or error.
 export const CHECK_JS = `((id) => {
-  const el = window.__webpilot?.[id];
+  const el = window.__vimx?.[id];
   if (!el) return { error: "not_found" };
   if (!el.isConnected) return { error: "stale" };
   return { tag: el.tagName.toLowerCase(), ok: true };
 })`;
 
 export const SELECT_JS = `((id, value) => {
-  const el = window.__webpilot?.[id];
+  const el = window.__vimx?.[id];
   if (!el) return { error: "Element not found. Run scan first." };
   if (!el.isConnected) return { error: "Element is stale. Run scan again." };
   const tag = el.tagName.toLowerCase();

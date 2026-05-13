@@ -8,7 +8,7 @@ tags: [cdp, performance, latency, sync]
 
 # Observe before act — CDP events instead of defensive sleeps
 
-**The choice.** Webpilot does not sleep defensively before or after tool calls. Instead it listens for CDP events (`Page.frameNavigated`, DOM mutation signals) and proceeds when the relevant signal fires. Mutation debounce is tight (80–100ms), not loose (400ms).
+**The choice.** Vimx does not sleep defensively before or after tool calls. Instead it listens for CDP events (`Page.frameNavigated`, DOM mutation signals) and proceeds when the relevant signal fires. Mutation debounce is tight (80–100ms), not loose (400ms).
 
 **Why this over defensive sleeps.** Defensive sleeps are pessimistic — they assume worst-case settle time. CDP events are observational — they report when something actually happened. Measured impact — see [2026-05-11-sleep-debounce-cdp](../benchmarks/2026-05-11-sleep-debounce-cdp.md):
 - `key`: 156–160ms → 4–5ms (**29–43×**)

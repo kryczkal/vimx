@@ -11,7 +11,7 @@ import {
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
 
-const HIGHLIGHT = !["", "0", "false"].includes((process.env.WEBPILOT_HIGHLIGHT ?? "").toLowerCase());
+const HIGHLIGHT = !["", "0", "false"].includes((process.env.VIMX_HIGHLIGHT ?? "").toLowerCase());
 
 function highlight(client: CDP.Client, id: number): void {
   if (!HIGHLIGHT) return;
@@ -43,9 +43,9 @@ interface ScanResult {
 // in subsequent tool calls works fine.
 //
 // Default ON per benchmark 2026-05-12 (-77% idle, -83% post-action scan
-// output across 20 sites, 0 site failures). Disable via WEBPILOT_SCAN_DEDUP=0
+// output across 20 sites, 0 site failures). Disable via VIMX_SCAN_DEDUP=0
 // for A/B testing or to recover legacy NEW: delta behavior.
-const SCAN_DEDUP = !["0", "false", "no"].includes((process.env.WEBPILOT_SCAN_DEDUP ?? "1").toLowerCase());
+const SCAN_DEDUP = !["0", "false", "no"].includes((process.env.VIMX_SCAN_DEDUP ?? "1").toLowerCase());
 
 interface ScanState {
   elementSigs: Map<number, string>;       // id → signature; used for change detection
@@ -401,10 +401,10 @@ async function scanPage(client: CDP.Client): Promise<ScanResult> {
         const added = [];
         for (const fe of frameEls) {
           const id = window.__wpNextId++;
-          window.__webpilotRects[id] = { x: fe.x, y: fe.y };
-          window.__webpilotLabels[id] = fe.label;
-          window.__webpilotAffordances[id] = fe.affordance;
-          window.__webpilot[id] = { __frameElement: true, x: fe.x, y: fe.y };
+          window.__vimxRects[id] = { x: fe.x, y: fe.y };
+          window.__vimxLabels[id] = fe.label;
+          window.__vimxAffordances[id] = fe.affordance;
+          window.__vimx[id] = { __frameElement: true, x: fe.x, y: fe.y };
           added.push({ ...fe, id });
         }
         return added;
@@ -602,7 +602,7 @@ function emitScan(scan: ScanResult, beforeIds?: Set<number>): string {
 }
 
 async function snapshotIds(client: CDP.Client): Promise<Set<number>> {
-  const ids = await evaluate(client, `Object.keys(window.__webpilotRects || {}).map(Number)`) as number[];
+  const ids = await evaluate(client, `Object.keys(window.__vimxRects || {}).map(Number)`) as number[];
   return new Set(ids || []);
 }
 
@@ -700,7 +700,7 @@ async function cdpType(client: CDP.Client, text: string) {
 // the setter call because we go through the prototype descriptor.
 async function clearField(client: CDP.Client, id: number) {
   await evaluate(client, `(() => {
-    const el = window.__webpilot?.[${id}];
+    const el = window.__vimx?.[${id}];
     if (!el) return;
     if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
       const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
@@ -801,7 +801,7 @@ async function cdpKey(client: CDP.Client, keyName: string, modifiers = 0) {
 // real silent-misclick caused by motion ever shows up in a session.
 async function getRect(client: CDP.Client, id: number): Promise<{ x: number; y: number; obscured?: string } | null> {
   return await evaluate(client, `(() => {
-    const el = window.__webpilot?.[${id}];
+    const el = window.__vimx?.[${id}];
     if (!el) return null;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return null;
@@ -903,7 +903,7 @@ async function resolveElement(
   // numeric input, look it up in the now-stale labels map before we rescan.
   let retryLabel: string | null = typeof idOrLabel === "string" ? idOrLabel : null;
   if (retryLabel === null) {
-    const cached = await evaluate(client, `window.__webpilotLabels?.[${idOrLabel}] ?? null`) as string | null;
+    const cached = await evaluate(client, `window.__vimxLabels?.[${idOrLabel}] ?? null`) as string | null;
     if (typeof cached === "string" && cached.length > 0) retryLabel = cached;
   }
   if (retryLabel === null) return { error: first.error };
@@ -927,13 +927,13 @@ const elementRef = z.union([
 // ── Server ──
 
 const server = new McpServer({
-  name: "webpilot",
+  name: "vimx",
   version: "0.2.0",
 });
 
 server.tool(
   "browser_open",
-  "Open a browser. Must be called before scan/press/type/etc. Spawns a fresh headed chromium; profile depends on env (ephemeral by default, cloned-from-template if WEBPILOT_PROFILE_TEMPLATE is set, persistent if WEBPILOT_PROFILE_DIR is set, attach-to-external if CDP_PORT/CDP_TARGET). Idempotent — calling twice returns 'already open'.",
+  "Open a browser. Must be called before scan/press/type/etc. Spawns a fresh headed chromium; profile depends on env (ephemeral by default, cloned-from-template if VIMX_PROFILE_TEMPLATE is set, persistent if VIMX_PROFILE_DIR is set, attach-to-external if CDP_PORT/CDP_TARGET). Idempotent — calling twice returns 'already open'.",
   {},
   async () => {
     try {
@@ -1056,7 +1056,7 @@ server.tool(
 
       await cdpClick(client, rect.x, rect.y);
       await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         if (el && document.activeElement !== el) el.focus();
       })()`);
 
@@ -1064,7 +1064,7 @@ server.tool(
       // that didn't actually clear (Forms shipped-broken case: prior remained
       // as suffix of new value, see post-ship session 8bbfd98a).
       const priorValue = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         return (el?.value ?? el?.textContent ?? "").substring(0, 200);
       })()`) as string;
 
@@ -1077,7 +1077,7 @@ server.tool(
       await cdpType(client, text);
 
       await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         if (!el || el.tagName !== "INPUT") return;
         const widgetTypes = ["time","date","datetime-local","month","week","number","range","color"];
         if (!widgetTypes.includes(el.type)) return;
@@ -1096,7 +1096,7 @@ server.tool(
       }
 
       const readback = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         const targetVal = (el?.value ?? el?.textContent ?? "").substring(0, 200);
         if (targetVal) return targetVal;
         const active = document.activeElement;
@@ -1182,7 +1182,7 @@ server.tool(
       // the click landed on something that ignored it (disabled, managed
       // elsewhere, radio that snapped back).
       const preState = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         if (!el) return null;
         return !!(el.checked ?? el.getAttribute("aria-checked") === "true");
       })()`) as boolean | null;
@@ -1193,7 +1193,7 @@ server.tool(
       if (dr) return dr;
 
       const state = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         if (!el) return { checked: false };
         return { checked: !!(el.checked ?? el.getAttribute("aria-checked") === "true") };
       })()`) as { checked: boolean };
@@ -1277,7 +1277,7 @@ server.tool(
       // against our stored element
       const allFileInputs = await evaluate(client, `(() => {
         const inputs = document.querySelectorAll('input[type="file"]');
-        const target = window.__webpilot?.[${id}];
+        const target = window.__vimx?.[${id}];
         for (let i = 0; i < inputs.length; i++) {
           if (inputs[i] === target) return i;
         }
@@ -1299,7 +1299,7 @@ server.tool(
 
       // Verify by reading back the file name
       const filename = await evaluate(client, `(() => {
-        const el = window.__webpilot?.[${id}];
+        const el = window.__vimx?.[${id}];
         if (!el || !el.files || el.files.length === 0) return "";
         return el.files[0].name;
       })()`) as string;
@@ -1465,11 +1465,11 @@ server.tool(
       await startObserving(client);
       if (target) {
         await evaluate(client, `(() => {
-          const labels = window.__webpilotLabels || {};
+          const labels = window.__vimxLabels || {};
           const q = ${JSON.stringify(target)}.toLowerCase();
           for (const id of Object.keys(labels)) {
             if (labels[id].toLowerCase().includes(q)) {
-              const el = window.__webpilot[id];
+              const el = window.__vimx[id];
               if (!el) continue;
               let node = el.parentElement;
               while (node && node !== document.body) {
@@ -1507,12 +1507,12 @@ server.tool(
     try {
       const client = await getClient();
       const items = await evaluate(client, `(() => {
-        const labels = window.__webpilotLabels || {};
+        const labels = window.__vimxLabels || {};
         const q = ${JSON.stringify(target)}.toLowerCase();
         // Find the element matching the label
         for (const id of Object.keys(labels)) {
           if (!labels[id].toLowerCase().includes(q)) continue;
-          const el = window.__webpilot[id];
+          const el = window.__vimx[id];
           if (!el) continue;
           // Walk up to find the scroll container
           let node = el.parentElement;

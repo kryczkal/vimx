@@ -1,9 +1,9 @@
-# webpilot
+# vimx
 
 **Vimium for AI agents.** An MCP server that gives LLM agents Vimium-style browser control via the Chrome DevTools Protocol — affordance-typed actions over filtered, hit-tested element refs, instead of megabyte DOM dumps.
 
 ```
-npx webpilot   # runs the MCP server over stdio
+npx vimx   # runs the MCP server over stdio
 ```
 
 ## Why
@@ -15,7 +15,7 @@ Most browser tools for AI agents hand the model raw HTML and ask it to compute w
 - Forces brittle ref tracking through framework re-renders
 - Breaks on hover-revealed UI, virtualized lists, modals, cross-origin iframes, and accessibility-hostile sites
 
-webpilot does what Vimium did for human users 15 years ago: **scan once, surface only what's clickable, resolve refs against live DOM at action-time.** The agent picks *which* element by id; the tool enforces *how* to interact with it.
+vimx does what Vimium did for human users 15 years ago: **scan once, surface only what's clickable, resolve refs against live DOM at action-time.** The agent picks *which* element by id; the tool enforces *how* to interact with it.
 
 - ~10× smaller scan output vs. accessibility-tree dumps
 - Hit-test (`elementFromPoint`) confirms every action against foreground state
@@ -24,12 +24,12 @@ webpilot does what Vimium did for human users 15 years ago: **scan once, surface
 
 ## Install
 
-webpilot is a stdio MCP server. Add it to your MCP-aware client:
+vimx is a stdio MCP server. Add it to your MCP-aware client:
 
 ### Claude Code
 
 ```bash
-claude mcp add webpilot -- npx -y webpilot
+claude mcp add vimx -- npx -y vimx
 ```
 
 ### Claude Desktop
@@ -39,9 +39,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 ```json
 {
   "mcpServers": {
-    "webpilot": {
+    "vimx": {
       "command": "npx",
-      "args": ["-y", "webpilot"]
+      "args": ["-y", "vimx"]
     }
   }
 }
@@ -54,9 +54,9 @@ Edit `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "webpilot": {
+    "vimx": {
       "command": "npx",
-      "args": ["-y", "webpilot"]
+      "args": ["-y", "vimx"]
     }
   }
 }
@@ -65,13 +65,13 @@ Edit `~/.cursor/mcp.json`:
 ### Requirements
 
 - **Node.js ≥ 20**
-- **Chrome or Chromium** on system PATH. webpilot auto-spawns it on first use, or attaches to a running instance — see [Browser lifecycle](#browser-lifecycle).
+- **Chrome or Chromium** on system PATH. vimx auto-spawns it on first use, or attaches to a running instance — see [Browser lifecycle](#browser-lifecycle).
 
 ### From source (pre-publish or development)
 
 ```bash
-git clone https://github.com/kryczkal/webpilot
-cd webpilot
+git clone https://github.com/kryczkal/vimx
+cd vimx
 npm install
 npm run build
 ```
@@ -81,9 +81,9 @@ Then point your MCP client at the built binary:
 ```json
 {
   "mcpServers": {
-    "webpilot": {
+    "vimx": {
       "command": "node",
-      "args": ["/absolute/path/to/webpilot/dist/index.js"]
+      "args": ["/absolute/path/to/vimx/dist/index.js"]
     }
   }
 }
@@ -115,21 +115,21 @@ Every mutating tool auto-emits a fresh scan in its return so the agent always ha
 
 ## Browser lifecycle
 
-webpilot has four profile modes, gated by environment variables. The default is **ephemeral** — each `browser_open` gets a fresh `/tmp` profile that's wiped on close.
+vimx has four profile modes, gated by environment variables. The default is **ephemeral** — each `browser_open` gets a fresh `/tmp` profile that's wiped on close.
 
 | Mode | Env vars | Behavior |
 |---|---|---|
 | **Attach** | `CDP_PORT=9222` or `CDP_TARGET=ws://...` | Connect to a chromium already running with `--remote-debugging-port`. No spawn, no profile management. |
-| **Template clone** | `WEBPILOT_PROFILE_TEMPLATE=/path/to/profile` | Clone the template dir to an MCP-server-scoped `/tmp` copy on first open, reuse across open/close cycles, wipe on MCP exit. Multiple MCP servers can run simultaneously from the same logged-in template (e.g. signed into Google). |
-| **Persistent** | `WEBPILOT_PROFILE_DIR=/path/to/profile` | Use the dir directly, no copy. Persists across MCP restarts. Single-process — can't be shared across MCP servers concurrently. |
+| **Template clone** | `VIMX_PROFILE_TEMPLATE=/path/to/profile` | Clone the template dir to an MCP-server-scoped `/tmp` copy on first open, reuse across open/close cycles, wipe on MCP exit. Multiple MCP servers can run simultaneously from the same logged-in template (e.g. signed into Google). |
+| **Persistent** | `VIMX_PROFILE_DIR=/path/to/profile` | Use the dir directly, no copy. Persists across MCP restarts. Single-process — can't be shared across MCP servers concurrently. |
 | **Ephemeral** | (default) | Fresh `/tmp` profile per `browser_open`, wiped on `browser_close`. |
 
-If both `_TEMPLATE` and `_DIR` are set, `_TEMPLATE` wins. If chromium is already running against `_DIR`, webpilot attaches instead of spawning a duplicate. Stale `/tmp/webpilot-mcp-*` dirs from SIGKILLed servers are swept on next launch.
+If both `_TEMPLATE` and `_DIR` are set, `_TEMPLATE` wins. If chromium is already running against `_DIR`, vimx attaches instead of spawning a duplicate. Stale `/tmp/vimx-mcp-*` dirs from SIGKILLed servers are swept on next launch.
 
 ### Other env vars
 
-- `WEBPILOT_HIGHLIGHT=0` — disable the visual element highlight (on by default; helps when watching the browser live)
-- `WEBPILOT_SCAN_DEDUP=0` — disable stateful scan dedup (on by default; saves ~80% on idle re-scans)
+- `VIMX_HIGHLIGHT=0` — disable the visual element highlight (on by default; helps when watching the browser live)
+- `VIMX_SCAN_DEDUP=0` — disable stateful scan dedup (on by default; saves ~80% on idle re-scans)
 
 ## Architecture
 
@@ -139,21 +139,21 @@ Three files, ~2k LOC total:
 - `src/cdp.ts` — Chrome DevTools Protocol connection management, profile handling, event-driven synchronization (no defensive sleeps).
 - `src/index.ts` — MCP server with affordance-typed tool definitions, stateful scan cache, anomaly-flag heuristics on `type` / `toggle` / `select`.
 
-Element refs live in `window.__webpilot[]` — direct object refs, not selectors. Survives React/Vue re-renders within a scan window.
+Element refs live in `window.__vimx[]` — direct object refs, not selectors. Survives React/Vue re-renders within a scan window.
 
 Design notes accumulate in [`wiki/`](wiki/) — hypotheses, decisions in code, principles, and benchmark findings, organized by the [pattern in `wiki/IDEA.md`](wiki/IDEA.md).
 
 ## Benchmarks
 
-A public benchmark spec is in progress: [`wiki/launch/wp-bench-v1.md`](wiki/launch/wp-bench-v1.md). Six failure-mode categories where DOM-dump approaches collapse and filtering wins; pre-registered predictions vs. Playwright-MCP, Stagehand, browser-use, and Computer Use.
+A public benchmark spec is in progress: [`wiki/launch/vimx-bench-v1.md`](wiki/launch/vimx-bench-v1.md). Six failure-mode categories where DOM-dump approaches collapse and filtering wins; pre-registered predictions vs. Playwright-MCP, Stagehand, browser-use, and Computer Use.
 
 Internal perf benchmarks (scan dedup, hit-test, viewport-bound scan, etc.) live in [`wiki/benchmarks/`](wiki/benchmarks/).
 
 ## Development
 
 ```bash
-git clone https://github.com/kryczkal/webpilot
-cd webpilot
+git clone https://github.com/kryczkal/vimx
+cd vimx
 npm install
 
 # dev (tsx, hot-ish)
@@ -172,7 +172,7 @@ CDP_PORT=9222 npm start
 ### Running Chrome for `CDP_PORT` mode
 
 ```bash
-chromium --remote-debugging-port=9222 --user-data-dir=/tmp/webpilot-dev-profile
+chromium --remote-debugging-port=9222 --user-data-dir=/tmp/vimx-dev-profile
 ```
 
 ## Contributing

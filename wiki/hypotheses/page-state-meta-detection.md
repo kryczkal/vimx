@@ -14,7 +14,7 @@ Started the bench loop; first-pass detector scored:
 - signinRequired: precision 100%, recall 50% (missed LinkedIn/Google multi-step flows)
 - captcha: precision 33% (Stack Overflow / Reddit / Booking false-flagged as captcha because of invisible reCAPTCHA v3 tracker iframes)
 
-Iteration v2 of the heuristics was queued (filter to visible captcha challenges only, add CMP-iframe patterns for cookie banners, URL-only signal sufficient for signin). Owner stopped before the v2 run: page-state meta-detection is polish; it doesn't move webpilot ahead of Playwright on the axes that matter (token economy, reliability of common actions, speed). Revisit only after the tool's core agent UX is demonstrably ahead.
+Iteration v2 of the heuristics was queued (filter to visible captcha challenges only, add CMP-iframe patterns for cookie banners, URL-only signal sufficient for signin). Owner stopped before the v2 run: page-state meta-detection is polish; it doesn't move vimx ahead of Playwright on the axes that matter (token economy, reliability of common actions, speed). Revisit only after the tool's core agent UX is demonstrably ahead.
 
 Bench artifacts preserved: `audit/page-state-detector-bench.mts`, `audit/page-state-inspect.mts`, `audit/data/page-state-detector/per-site-results.json`. Detector v1 + v2 heuristics worth picking up later if we ever return.
 

@@ -1,4 +1,4 @@
-# Contributing to webpilot
+# Contributing to vimx
 
 Thanks for the interest. A few short rules.
 
@@ -20,7 +20,7 @@ git config --global format.signoff true
 
 ## Scope of contributions
 
-webpilot is the *primitive* — affordance-typed browser actions over a Vimium-derived scanner. Contributions that fit the kernel:
+vimx is the *primitive* — affordance-typed browser actions over a Vimium-derived scanner. Contributions that fit the kernel:
 
 - Scanner heuristics (visibility, clickability, region detection)
 - New affordance types or action primitives

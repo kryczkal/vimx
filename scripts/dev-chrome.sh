@@ -11,7 +11,7 @@ set -euo pipefail
 
 [[ -f .mcp.json ]] || { echo "no .mcp.json in $(pwd) — run 'cwt new' first or you're in the wrong dir" >&2; exit 1; }
 
-port=$(jq -r '.mcpServers.webpilot.env.CDP_PORT // empty' .mcp.json 2>/dev/null || true)
+port=$(jq -r '.mcpServers.vimx.env.CDP_PORT // empty' .mcp.json 2>/dev/null || true)
 [[ -z "$port" ]] && { echo "could not read CDP_PORT from .mcp.json" >&2; exit 1; }
 
 # Derive the worktree-specific name from the directory (works because cwt

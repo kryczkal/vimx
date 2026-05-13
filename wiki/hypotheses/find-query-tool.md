@@ -9,13 +9,13 @@ tags: [search, agent-native, read]
 
 ## Refuted 2026-05-12 — prior implementation evidence
 
-webpilot previously shipped a `query` tool that worked structurally like the proposed `find(query)`. Outcome: agents made too-narrow / semantic-style calls (e.g. `query("button to add product to cart")` expecting intent understanding). Substring matching can't satisfy that call shape; agents conclude the tool is broken and abandon it. The owner pivoted to `read({regex})` precisely because of this failure pattern.
+vimx previously shipped a `query` tool that worked structurally like the proposed `find(query)`. Outcome: agents made too-narrow / semantic-style calls (e.g. `query("button to add product to cart")` expecting intent understanding). Substring matching can't satisfy that call shape; agents conclude the tool is broken and abandon it. The owner pivoted to `read({regex})` precisely because of this failure pattern.
 
 The shape of the API — accepting a "natural-language query" — is what invites the misuse. Whether the implementation is substring, fuzzy, or anything short of full semantic search, the API promises intent-understanding it can't deliver. Models read the API surface and call accordingly.
 
 **The principle**: don't expose tools that promise to understand agent intent. Expose primitives the agent composes. Regex is the right primitive for "find content on the page" — models know regex; let them own the query semantics. See [expose-primitives-not-search-engines](../findings/expose-primitives-not-search-engines.md).
 
-**Implication for the "agents abandon webpilot for curl" symptom from sessions 98cd4dbf/fcdb27fe**: the actual fix isn't a new tool. It's better discoverability of `read({regex})` for search-shaped tasks, and/or surfacing search affordances explicitly when `<input type="search">` / `role="search"` exist on the page. Filed as a separate, narrower direction below.
+**Implication for the "agents abandon vimx for curl" symptom from sessions 98cd4dbf/fcdb27fe**: the actual fix isn't a new tool. It's better discoverability of `read({regex})` for search-shaped tasks, and/or surfacing search affordances explicitly when `<input type="search">` / `role="search"` exist on the page. Filed as a separate, narrower direction below.
 
 ## Original hypothesis (preserved)
 
@@ -32,7 +32,7 @@ find("nonstop")
     Result 4: "Nonstop · 12h 10m"
 ```
 
-**Predicted outcome.** Agents prefer `find()` over `read({regex})` when both exist, because natural language matches the agent's reasoning shape ("where's the nonstop option") better than regex syntax. Also closes the "webpilot can't search" mental-model gap that caused sessions 98cd4dbf and fcdb27fe to abandon webpilot for `curl`.
+**Predicted outcome.** Agents prefer `find()` over `read({regex})` when both exist, because natural language matches the agent's reasoning shape ("where's the nonstop option") better than regex syntax. Also closes the "vimx can't search" mental-model gap that caused sessions 98cd4dbf and fcdb27fe to abandon vimx for `curl`.
 
 **How to test.**
 1. Implement alongside existing `read()`.

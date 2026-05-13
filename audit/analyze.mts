@@ -1,6 +1,6 @@
 // Read audit/data/examples.jsonl and produce a per-tool regression report.
 //
-// What the model sees from a webpilot tool is the raw "og" / "now" text we
+// What the model sees from a vimx tool is the raw "og" / "now" text we
 // stored. This analyzer's job is to make the size, shape, and contents of
 // those differences inspectable at a glance.
 //
@@ -225,7 +225,7 @@ function excerpt(text: string, chars: number): string {
 }
 
 const md: string[] = [];
-md.push("# Webpilot tool audit — commit 5 vs current");
+md.push("# Vimx tool audit — commit 5 vs current");
 md.push("");
 md.push(`Examples captured: **${examples.length}**, across ${byTool.size} tool flavors.`);
 md.push("");
@@ -239,7 +239,7 @@ md.push("");
 const scans = byTool.get("scan") || [];
 md.push(`${scans.filter(s => !s.meta.identical).length} of ${scans.length} sites produced a different scan output.`);
 md.push("");
-md.push("OG SCANNER_JS skipped disambig when all duplicates shared the same href, including the all-empty case (most `<button>`s). The formatter's `dedup` then collapsed the buttons by `label|href` key, so the model only ever saw ONE row per group of identical-labelled buttons, even though `window.__webpilot[]` held all of them. Action on the dropped buttons was effectively unreachable.");
+md.push("OG SCANNER_JS skipped disambig when all duplicates shared the same href, including the all-empty case (most `<button>`s). The formatter's `dedup` then collapsed the buttons by `label|href` key, so the model only ever saw ONE row per group of identical-labelled buttons, even though `window.__vimx[]` held all of them. Action on the dropped buttons was effectively unreachable.");
 md.push("");
 md.push("NOW disambiguates buttons too. Duplicates get `Label [unique-context]` suffixes, the formatter no longer collapses them, and the model sees every clickable.");
 md.push("");

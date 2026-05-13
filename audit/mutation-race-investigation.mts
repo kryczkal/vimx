@@ -63,11 +63,11 @@ async function nav(url: string) {
 
 async function findElementByLabel(label: string): Promise<{ id: number; x: number; y: number } | null> {
   return ev(`(() => {
-    const labels = window.__webpilotLabels || {};
+    const labels = window.__vimxLabels || {};
     const q = ${JSON.stringify(label)}.toLowerCase();
     for (const id of Object.keys(labels)) {
       if (labels[id].toLowerCase().includes(q)) {
-        const r = window.__webpilotRects?.[id];
+        const r = window.__vimxRects?.[id];
         if (r) return { id: parseInt(id), x: r.x, y: r.y };
       }
     }
@@ -84,7 +84,7 @@ for (const site of SITES_AND_TRIGGERS) {
   console.log(`\n[${site.url}] target: "${site.label}" (${site.expect})`);
 
   await nav(site.url);
-  await ev(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__webpilot; delete window.__webpilotRects; delete window.__webpilotLabels; delete window.__webpilotAffordances; delete window.__webpilotRegions; delete window.__wpRegionMap; delete window.__wpMutWatch; })()`);
+  await ev(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__vimx; delete window.__vimxRects; delete window.__vimxLabels; delete window.__vimxAffordances; delete window.__vimxRegions; delete window.__wpRegionMap; delete window.__wpMutWatch; })()`);
 
   // Initial scan to populate ids
   await ev<ScanResult>(SCANNER_JS);

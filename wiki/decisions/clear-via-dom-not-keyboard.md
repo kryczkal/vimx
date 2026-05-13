@@ -34,7 +34,7 @@ Surfaced by [anomaly-flag bench](../benchmarks/2026-05-12-anomaly-flag-action-re
 ```typescript
 async function clearField(client: CDP.Client, id: number) {
   await evaluate(client, `(() => {
-    const el = window.__webpilot?.[${id}];
+    const el = window.__vimx?.[${id}];
     if (!el) return;
     if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
       const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;

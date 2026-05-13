@@ -1,11 +1,11 @@
-# /wiki-ingest — Ingest a source into the webpilot wiki
+# /wiki-ingest — Ingest a source into the vimx wiki
 
 Run the ingest workflow on a new source. Full conventions in `wiki/CLAUDE.md` — read it before doing anything else; the folder layout, frontmatter, and downstream propagation rules live there, not here.
 
 ## Resolve $1
 
 - **File path** (`/path/to/file.md`) → ingest that file directly.
-- **Claude-code session UUID** (8-4-4-4-12 hex) → load `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`, where `<encoded-cwd>` is the project's absolute path with `/` replaced by `-` (e.g. `/home/alice/code/webpilot` → `-home-alice-code-webpilot`). Find the relevant portion (typically the output of a slash command); don't ingest the whole conversation.
+- **Claude-code session UUID** (8-4-4-4-12 hex) → load `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`, where `<encoded-cwd>` is the project's absolute path with `/` replaced by `-` (e.g. `/home/alice/code/vimx` → `-home-alice-code-vimx`). Find the relevant portion (typically the output of a slash command); don't ingest the whole conversation.
 - **`benchmark`** → find recent `/benchmark` runs in the project's claude-code history:
   ```bash
   proj="$HOME/.claude/projects/$(pwd | sed 's|/|-|g')"

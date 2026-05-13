@@ -18,7 +18,7 @@ The right framing is **0 implementation knowledge, full semantic knowledge.** Th
 **Concrete present-day expressions.**
 - Affordance-typed tools (`press` / `type` / `select` / `toggle`) — the agent picks WHICH element; the tool enforces HOW. See [affordance-grouping-over-dom-hierarchy](affordance-grouping-over-dom-hierarchy.md).
 - `resolveElement` retry-after-rescan for stale refs — the agent never thinks about ref staleness.
-- Element references in `window.__webpilot[]`, not CSS selectors — the agent never writes a selector.
+- Element references in `window.__vimx[]`, not CSS selectors — the agent never writes a selector.
 - Auto re-scan after mutations — see [auto-rescan-after-mutation](../decisions/auto-rescan-after-mutation.md). The agent never asks "did the page change?" before its next action.
 - `cleanHref` strips tracking junk from URLs — the agent doesn't need to know that `&aax_…&qid=…&ref=…` is noise.
 

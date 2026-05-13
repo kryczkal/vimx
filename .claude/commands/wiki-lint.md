@@ -1,4 +1,4 @@
-# /wiki-lint — Health-check the webpilot wiki
+# /wiki-lint — Health-check the vimx wiki
 
 Walk the wiki, find what's gone stale, contradictory, or orphaned. Full conventions in `wiki/CLAUDE.md`.
 

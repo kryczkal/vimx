@@ -1,6 +1,6 @@
 # /ship-by-bench — Build data-first; the wiki is your platform
 
-The webpilot loop. Frame the work as a stack of decisions; benchmark each non-trivial one against real sites before writing the code that bakes it in; validate the ship the same way. Every loop reads `wiki/` on entry and writes `wiki/` on exit — that's how decisions stay traceable across many small shipping rounds.
+The vimx loop. Frame the work as a stack of decisions; benchmark each non-trivial one against real sites before writing the code that bakes it in; validate the ship the same way. Every loop reads `wiki/` on entry and writes `wiki/` on exit — that's how decisions stay traceable across many small shipping rounds.
 
 ## Read first
 
@@ -59,6 +59,6 @@ The webpilot loop. Frame the work as a stack of decisions; benchmark each non-tr
 
 ## Philosophy
 
-webpilot is a 3k-LOC tool. Architecturally clean means every decision in the code traces to a measurement, not an opinion. "Narrow in scope, full in quality" is the rule — not "minimum viable." The two failure modes to avoid are *over-building speculative features the bench hasn't justified* and *under-building the path the bench did pick*. The wiki + bench discipline is what keeps the accumulation coherent: linked decisions, traceable evidence, deferred work filed as hypotheses, principles surviving pivots. Without that cohesion mechanism, lots of small ships compound into a junk drawer. With it, they compound into a clean architecture that emerged from what was actually measured to matter.
+vimx is a 3k-LOC tool. Architecturally clean means every decision in the code traces to a measurement, not an opinion. "Narrow in scope, full in quality" is the rule — not "minimum viable." The two failure modes to avoid are *over-building speculative features the bench hasn't justified* and *under-building the path the bench did pick*. The wiki + bench discipline is what keeps the accumulation coherent: linked decisions, traceable evidence, deferred work filed as hypotheses, principles surviving pivots. Without that cohesion mechanism, lots of small ships compound into a junk drawer. With it, they compound into a clean architecture that emerged from what was actually measured to matter.
 
 If work happens outside the wiki, it didn't happen. If data has no wiki page, it doesn't exist for the next iteration. Real sites are the ground truth.

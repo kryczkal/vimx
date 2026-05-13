@@ -8,7 +8,7 @@ tags: [scanner, obscured-detection, hit-test]
 
 # Hit-test in getRect to detect obscured elements
 
-**The choice.** Before reporting an element's rect, webpilot runs an `elementFromPoint` hit test from the element's geometric center. If the topmost element there isn't the target (or a descendant), the element is flagged as obscured. The error names the obstructing element.
+**The choice.** Before reporting an element's rect, vimx runs an `elementFromPoint` hit test from the element's geometric center. If the topmost element there isn't the target (or a descendant), the element is flagged as obscured. The error names the obstructing element.
 
 **Why this over click-and-fail.** Without pre-action hit-testing, the agent calls `press(N)`, the click silently lands on an overlay, and the agent has no signal except a possibly-unrelated page change. With hit-testing, the tool returns `Element [N] is obscured by div[role='dialog'] 'Cookie consent'. Dismiss it or scroll.` — precise diagnosis at the failure point.
 

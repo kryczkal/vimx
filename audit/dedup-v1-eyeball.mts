@@ -23,7 +23,7 @@ await Page.navigate({ url: URL });
 await Promise.race([Page.loadEventFired(), new Promise(r => setTimeout(r, 12000))]);
 await new Promise(r => setTimeout(r, 2000));
 
-await ev(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__webpilot; delete window.__webpilotRects; delete window.__webpilotLabels; delete window.__webpilotAffordances; delete window.__webpilotRegions; })()`);
+await ev(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__vimx; delete window.__vimxRects; delete window.__vimxLabels; delete window.__vimxAffordances; delete window.__vimxRegions; })()`);
 
 interface ScanEntry { id: number; tag: string; label: string; value?: string; inputType?: string; placeholder?: string; options?: string[]; checked?: boolean; href?: string; region?: string; }
 interface ScanResult { url: string; title: string; groups: Record<string, ScanEntry[]>; total: number; pageScrollable?: boolean; }

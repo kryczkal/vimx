@@ -14,7 +14,7 @@ tags: [scan, design, mutation]
 1. Agents reliably forget to re-scan, ending up with stale state in mind.
 2. When they do re-scan, it's an extra tool call — adding latency and tokens.
 
-Auto-rescan eliminates both. Per [the 2026-05-12 analysis](../sessions/2026-05-12-cursor-export-17-sessions.md): "Out of ~110 webpilot tool calls in session 19e1a97a, only 35 were explicit scans — the rest happened automatically." The implicit rescan is doing real work.
+Auto-rescan eliminates both. Per [the 2026-05-12 analysis](../sessions/2026-05-12-cursor-export-17-sessions.md): "Out of ~110 vimx tool calls in session 19e1a97a, only 35 were explicit scans — the rest happened automatically." The implicit rescan is doing real work.
 
 The auto-rescan also enables a `NEW:` block: elements that didn't exist in the prior scan but appear in the new one (typically modal contents, newly-revealed dropdowns). Sessions show agents directly targeting `NEW:` elements on the next call — exactly the affordance the block was meant to surface.
 

@@ -1,4 +1,4 @@
-// Audit harness: capture exactly what the model sees from each webpilot tool,
+// Audit harness: capture exactly what the model sees from each vimx tool,
 // under commit-5 (HEAD~5 = d7d84e3) vs the current working tree (HEAD + WIP).
 //
 // What changed between the two regimes (verified via `git diff HEAD~5..HEAD`):
@@ -305,7 +305,7 @@ async function readNOW(query: string | null): Promise<string> {
 }
 
 // Scan, returning the model-visible text. Injects the chosen SCANNER_JS, then
-// formats with the (unchanged) formatter. Side effect: leaves window.__webpilot
+// formats with the (unchanged) formatter. Side effect: leaves window.__vimx
 // populated by that regime's scanner, which is what resolve(...) needs.
 async function scanFormatted(scannerJS: string): Promise<{ text: string; raw: ScanResult }> {
   const raw = await evalJS<ScanResult>(scannerJS);
@@ -569,7 +569,7 @@ async function runSite(url: string): Promise<SiteSummary> {
   // ── 4. resolve.same_input (same label string in both regimes) ──
   const picks = pickResolveLabels(ogScan.raw, nowScan.raw);
 
-  // Re-inject OG so window.__webpilot reflects OG ids/labels for OG resolves.
+  // Re-inject OG so window.__vimx reflects OG ids/labels for OG resolves.
   await safeEval("re-inject og", () => evalJS(OG_SCANNER_JS), null);
   const ogResolves = new Map<string, { matched: boolean; id?: number; matchedLabel?: string; error?: string; options?: { id: number; label: string }[] }>();
   for (const label of picks.sameInput) {

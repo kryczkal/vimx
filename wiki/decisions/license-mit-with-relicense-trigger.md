@@ -10,22 +10,22 @@ tags: [license, oss, launch, governance]
 
 ## The choice
 
-webpilot is MIT-licensed as of v0.1.0. Two adjacent governance decisions land alongside:
+vimx is MIT-licensed as of v0.1.0. Two adjacent governance decisions land alongside:
 
 - Contributions use **DCO sign-off** (`Signed-off-by:` trailer), not a CLA.
-- Trademark "webpilot" is reserved separately — the license covers code, not the name.
+- Trademark "vimx" is reserved separately — the license covers code, not the name.
 
 ## Alternatives considered
 
 **Apache 2.0** — the strongest alternative. Explicit patent grant + patent-retaliation clause; ecosystem-aligned with the MCP TypeScript SDK and Playwright-MCP (the launch foil). Rejected for v0 because:
 
-1. **Vimium upstream is MIT.** webpilot's scanner derives from Vimium's `link_hints.js` / `dom_utils.js` (see [`../../THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md)). MIT → MIT is the cleanest derivative-work narrative.
+1. **Vimium upstream is MIT.** vimx's scanner derives from Vimium's `link_hints.js` / `dom_utils.js` (see [`../../THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md)). MIT → MIT is the cleanest derivative-work narrative.
 2. **Closest peers are MIT.** browser-use (philosophical rival) and Stagehand (ecosystem peer) are both MIT. Matching them removes one friction axis for adopters considering a switch.
 3. **Adoption-first launch posture.** Indie agent builders and the HN audience read MIT as the default permissive license. Apache 2.0's NOTICE-file + modification-marking obligations are minor compliance friction that compounds across many adopters.
 4. **Contributor friction.** Apache 2.0's irrevocable patent grant creates an "is this OK with my employer" check for engineers at large companies. MIT skips that check. The contributor pool at v0 is exactly those engineers.
 5. **Patent-grant value is deferred.** No enterprise customers, no foundation conversations, no large-corp contribution offers — yet. Each of those is a *trigger* for the relicense, not the current state.
 
-**Source-available (BSL / FSL / SSPL / Elastic License)** — rejected as wrong-frame. The MongoDB / Elastic / HashiCorp / Redis pattern that produced these is about defending managed-service businesses from cloud-provider undercutting. webpilot is a stateless library/server; the closest analogs (Puppeteer, Playwright) are permissive-licensed and have never faced "AWS clones us" pressure. Source-available would solve a problem we don't have while creating the "is it really open source" debate we don't want during launch.
+**Source-available (BSL / FSL / SSPL / Elastic License)** — rejected as wrong-frame. The MongoDB / Elastic / HashiCorp / Redis pattern that produced these is about defending managed-service businesses from cloud-provider undercutting. vimx is a stateless library/server; the closest analogs (Puppeteer, Playwright) are permissive-licensed and have never faced "AWS clones us" pressure. Source-available would solve a problem we don't have while creating the "is it really open source" debate we don't want during launch.
 
 **AGPL / MPL 2.0** — rejected. AGPL spooks enterprise procurement reviews; MPL 2.0 is file-level copyleft, which conflicts with the kernel positioning ("embed me in your stack without thinking about it").
 
@@ -60,8 +60,8 @@ For a solo-maintainer project at launch, CLA friction loses more indie contribut
 
 ## What this does NOT cover
 
-- **Trademark.** "webpilot" is a separate IP concern. File an intent-to-use trademark application (~$350, USPTO, ~6-month process) once brand commitment is firm. License does not cover the name.
-- **Benchmark license.** WP-Bench v0/v1 task list + writeups are intended for **CC BY 4.0** (attribution-required, commercial use OK, allows derivative benchmarks). Code and benchmark data are different artifacts.
+- **Trademark.** "vimx" is a separate IP concern. File an intent-to-use trademark application (~$350, USPTO, ~6-month process) once brand commitment is firm. License does not cover the name.
+- **Benchmark license.** Vimx Bench v0/v1 task list + writeups are intended for **CC BY 4.0** (attribution-required, commercial use OK, allows derivative benchmarks). Code and benchmark data are different artifacts.
 - **Documentation license.** README / CLAUDE.md / wiki defaults to MIT for simplicity — only the benchmark surface gets a different license.
 
 ## Implementation

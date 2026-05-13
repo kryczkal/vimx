@@ -308,7 +308,7 @@ for (const url of SITES) {
 
   // First navigate also runs the scanner once via SCANNER_JS for ID init.
   // Reset state manually to ensure a fresh start per site.
-  await evalJS(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__webpilot; delete window.__webpilotRects; delete window.__webpilotLabels; delete window.__webpilotAffordances; delete window.__webpilotRegions; })()`);
+  await evalJS(`(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__vimx; delete window.__vimxRects; delete window.__vimxLabels; delete window.__vimxAffordances; delete window.__vimxRegions; })()`);
 
   // Scenario 1: first scan — both modes emit full output (no prev state)
   const s1 = await scanOnce();
@@ -330,7 +330,7 @@ for (const url of SITES) {
     const target = pressTargets[0];
     row.press_target = target.label;
     const rect = await evalJS<{ x: number; y: number } | null>(
-      `(() => { const r = window.__webpilotRects?.[${target.id}]; return r ? { x: r.x, y: r.y } : null; })()`
+      `(() => { const r = window.__vimxRects?.[${target.id}]; return r ? { x: r.x, y: r.y } : null; })()`
     );
     if (rect) {
       try {

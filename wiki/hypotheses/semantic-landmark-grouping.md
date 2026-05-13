@@ -55,7 +55,7 @@ Aside: Navigation (sidebar)
 
 **How to test.**
 1. Implement behind a flag.
-2. Re-run the 10 webpilot-dominant cursor session tasks. Measure: (a) turn count to completion, (b) wrong-row-selected errors, (c) total tokens in scan output.
+2. Re-run the 10 vimx-dominant cursor session tasks. Measure: (a) turn count to completion, (b) wrong-row-selected errors, (c) total tokens in scan output.
 3. Smoke-test on pages without semantic landmarks (many SPAs) to confirm graceful fallback to flat grouping.
 
 **Risks.**

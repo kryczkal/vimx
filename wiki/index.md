@@ -11,7 +11,7 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 ## Decisions (in code)
 
 - [license-mit-with-relicense-trigger](decisions/license-mit-with-relicense-trigger.md) — MIT for v0; documented re-license trigger to Apache 2.0 (enterprise legal ask / foundation entry / $1M ARR / blocked corp contributor). DCO sign-off, not CLA. Trademark reserved separately.
-- [browser-lifecycle-and-profile-semantics](decisions/browser-lifecycle-and-profile-semantics.md) — `browser_open`/`browser_close` as explicit lifecycle tools; four profile modes (attach / template clone / persistent / ephemeral) gated by env. SIGKILL-safe via pid-verified `/tmp/webpilot-mcp-*` sweep.
+- [browser-lifecycle-and-profile-semantics](decisions/browser-lifecycle-and-profile-semantics.md) — `browser_open`/`browser_close` as explicit lifecycle tools; four profile modes (attach / template clone / persistent / ephemeral) gated by env. SIGKILL-safe via pid-verified `/tmp/vimx-mcp-*` sweep.
 - [auto-rescan-after-mutation](decisions/auto-rescan-after-mutation.md) — every mutating tool returns a fresh scan inline.
 - [stateful-scan-with-region-dedup](decisions/stateful-scan-with-region-dedup.md) — `scan()` is stateful per URL path; emits dedup output when prior state exists; region tag attached to every entry.
 - [clear-via-dom-not-keyboard](decisions/clear-via-dom-not-keyboard.md) — `type(clear:true)` uses DOM value setter, not Ctrl+A keystroke (which never reached the editing-command handler via CDP). Root cause of the Forms shipped-broken case.
@@ -43,13 +43,13 @@ Ranked by expected leverage (highest first):
 3. [page-state-diff-in-action-returns](hypotheses/page-state-diff-in-action-returns.md) — **CONFIRMED 2026-05-12** as "tool refuses silent failure": anomaly heuristics on `type`/`toggle`/`select`. Bench surfaced & fixed the cdpSelectAll bug along the way.
 4. [find-query-tool](hypotheses/find-query-tool.md) — **REFUTED 2026-05-12**: prior `query` tool had this exact shape; agents made too-narrow semantic calls. The shape of a "natural-language query" API invites misuse regardless of implementation. See [expose-primitives-not-search-engines](findings/expose-primitives-not-search-engines.md).
 5. [predicted-effect-annotations](hypotheses/predicted-effect-annotations.md) — **NEXT TO TEST**: action-prescriptive hints (`→ combobox, navigate with key("arrowdown")`) targeting custom-widget thrash. Queued behind post-ship data gathering.
-6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — **SUPERSEDED 2026-05-12**: polish, doesn't move webpilot ahead of Playwright on the axes that matter. Bench started, v1 detector scored cookie 22% recall / captcha 33% precision; deferred before v2 iteration. Revisit only after the tool's core UX is demonstrably ahead.
+6. [page-state-meta-detection](hypotheses/page-state-meta-detection.md) — **SUPERSEDED 2026-05-12**: polish, doesn't move vimx ahead of Playwright on the axes that matter. Bench started, v1 detector scored cookie 22% recall / captcha 33% precision; deferred before v2 iteration. Revisit only after the tool's core UX is demonstrably ahead.
 7. [tab-switch-resets-scan-cache](hypotheses/tab-switch-resets-scan-cache.md) — **PARKED 2026-05-12**: safety-conservative; no real-session evidence of the failure mode it would prevent. Ship if a drift case ever surfaces.
 
 ## Sessions
 
 - [2026-05-12 cursor-export 17 sessions](sessions/2026-05-12-cursor-export-17-sessions.md) — two-pass analysis (UX map + AI-native pushback).
-- [2026-05-12 token-cost measurement](sessions/2026-05-12-token-cost-measurement.md) — primary-source byte breakdown across 10 webpilot-dominant sessions; baseline pre-viewport-bound.
+- [2026-05-12 token-cost measurement](sessions/2026-05-12-token-cost-measurement.md) — primary-source byte breakdown across 10 vimx-dominant sessions; baseline pre-viewport-bound.
 
 ## Benchmarks
 
@@ -71,7 +71,7 @@ From `/benchmark` runs in claude-code dev sessions (2026-05-10 to 2026-05-12):
 
 ## Launch
 
-- [wp-bench-v1](launch/wp-bench-v1.md) — public benchmark spec proving the category claim (filtering > DOM dump). 6 failure-mode categories × 4 tasks + 6 calibration; pre-registered predictions vs Playwright-MCP / Stagehand / browser-use / Computer Use; harness adapter plan for BU-Bench.
+- [vimx-bench-v1](launch/vimx-bench-v1.md) — public benchmark spec proving the category claim (filtering > DOM dump). 6 failure-mode categories × 4 tasks + 6 calibration; pre-registered predictions vs Playwright-MCP / Stagehand / browser-use / Computer Use; harness adapter plan for BU-Bench.
 
 ## Operational
 

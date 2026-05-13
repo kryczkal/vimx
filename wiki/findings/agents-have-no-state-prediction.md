@@ -8,7 +8,7 @@ tags: [agent-loop, perception, prediction, verification]
 
 # Agents have no state prediction
 
-**Claim.** Agents using both webpilot and playwright run a reactive perceive→act loop. They don't form predicted outcomes before acting, so when reality diverges from what should have happened, no signal fires. Anomalies are silently absorbed into the next state.
+**Claim.** Agents using both vimx and playwright run a reactive perceive→act loop. They don't form predicted outcomes before acting, so when reality diverges from what should have happened, no signal fires. Anomalies are silently absorbed into the next state.
 
 **Evidence.**
 - Zero of 17 sessions show the agent writing a predicted outcome before an action.

@@ -99,7 +99,7 @@ const rows: Row[] = [];
 for (const url of SITES) {
   await Page.navigate({ url });
   await new Promise(r => setTimeout(r, 2500));
-  await Runtime.evaluate({ expression: `(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__webpilot; delete window.__webpilotRects; delete window.__webpilotLabels; delete window.__webpilotAffordances; delete window.__webpilotRegions; })()` });
+  await Runtime.evaluate({ expression: `(() => { delete window.__wpIdMap; delete window.__wpNextId; delete window.__vimx; delete window.__vimxRects; delete window.__vimxLabels; delete window.__vimxAffordances; delete window.__vimxRegions; })()` });
   const { result } = await Runtime.evaluate({ expression: SCANNER_JS, returnByValue: true });
   const s = result.value as ScanResult;
   if (!s) { console.log(`${url}: fail`); continue; }

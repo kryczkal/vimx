@@ -1,4 +1,4 @@
-# /wiki-query — Answer a question from the webpilot wiki
+# /wiki-query — Answer a question from the vimx wiki
 
 Synthesize an answer from accumulated wiki knowledge. Full conventions in `wiki/CLAUDE.md`.
 

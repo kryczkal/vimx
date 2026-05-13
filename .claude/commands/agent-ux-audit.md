@@ -20,7 +20,7 @@ Ask the user for the path to their cursor session export directory (typically `c
 
 One-pass `grep -c` per session for tool-namespace markers:
 - `playwright|mcp_playwright|browser_navigate|browser_snapshot` → Playwright-dominant
-- `webpilot|mcp_webpilot|press\|scan\|toggle\|hover` → webpilot-dominant
+- `vimx|mcp_vimx|press\|scan\|toggle\|hover` → vimx-dominant
 - mixed sessions exist; tag them as such
 
 Report counts. Pick 3-5 sessions per tool for deep read, biased toward large/long-running ones (more material), with at least one short session per tool (different failure modes).
