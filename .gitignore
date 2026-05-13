@@ -7,3 +7,6 @@ tools/
 .mcp.json
 .cwt-state/
 CLAUDE.local.md
+
+# private wiki docs (strategy, business)
+wiki/business.md

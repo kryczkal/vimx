@@ -10,6 +10,7 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 
 ## Decisions (in code)
 
+- [browser-lifecycle-and-profile-semantics](decisions/browser-lifecycle-and-profile-semantics.md) — `browser_open`/`browser_close` as explicit lifecycle tools; four profile modes (attach / template clone / persistent / ephemeral) gated by env. SIGKILL-safe via pid-verified `/tmp/webpilot-mcp-*` sweep.
 - [auto-rescan-after-mutation](decisions/auto-rescan-after-mutation.md) — every mutating tool returns a fresh scan inline.
 - [stateful-scan-with-region-dedup](decisions/stateful-scan-with-region-dedup.md) — `scan()` is stateful per URL path; emits dedup output when prior state exists; region tag attached to every entry.
 - [clear-via-dom-not-keyboard](decisions/clear-via-dom-not-keyboard.md) — `type(clear:true)` uses DOM value setter, not Ctrl+A keystroke (which never reached the editing-command handler via CDP). Root cause of the Forms shipped-broken case.
@@ -66,6 +67,10 @@ From `/benchmark` runs in claude-code dev sessions (2026-05-10 to 2026-05-12):
 - [2026-05-11 sleep/debounce CDP optimization](benchmarks/2026-05-11-sleep-debounce-cdp.md) — `key` 29–43×, scan 3–5×, scroll 6–8× speedup.
 - [2026-05-12 URL annotation in read()](benchmarks/2026-05-12-url-annotation-read.md) — variant E (unfiltered) chosen across 19 sites; 52% of anchors off-viewport.
 - [2026-05-12 viewport-bound vs full-page scan](benchmarks/2026-05-12-viewport-bound-vs-full.md) — 99 sites; viewport-bound ~7× cheaper per session.
+
+## Launch
+
+- [wp-bench-v1](launch/wp-bench-v1.md) — public benchmark spec proving the category claim (filtering > DOM dump). 6 failure-mode categories × 4 tasks + 6 calibration; pre-registered predictions vs Playwright-MCP / Stagehand / browser-use / Computer Use; harness adapter plan for BU-Bench.
 
 ## Operational
 

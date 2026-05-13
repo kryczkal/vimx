@@ -1,3 +1,33 @@
+## [2026-05-13] backfill | browser-lifecycle + profile-semantics decision
+
+Eight shipped commits (May 12 → May 13) were absent from the wiki — a coherent architectural arc that moved the chromium from "MCP boot spawns it" to "LLM controls it via tools, profile semantics opt-in by env." The wiki had zero references to `browser_open`, `browser_close`, `WEBPILOT_PROFILE_TEMPLATE`, or `WEBPILOT_PROFILE_DIR`. Backfilled as a single decision page rather than per-commit, since they form one design.
+
+Commits covered: `9f6f7a6` (auto-spawn per MCP server) → `17deedf` (`browser_open`/`browser_close` tools) → `2a1043e` (`WEBPILOT_PROFILE_DIR`) → `ff739fc` (`WEBPILOT_PROFILE_TEMPLATE`) → `6c8d70f` (stale-dir sweep) → `49d66d3` (attach-liveness fix via `/proc/cmdline` rather than CDP probe). Dev-side commits `463a4dc` + `3815a87` (per-worktree cwt hooks) referenced as supporting the attach branch.
+
+Pages touched:
+- wiki/decisions/browser-lifecycle-and-profile-semantics.md (new)
+- wiki/index.md (added to Decisions list, top)
+- wiki/log.md (this entry)
+
+Calibration note: this is a wiki-discipline miss worth flagging. The wiki's stated job (per wiki/CLAUDE.md) is "every page belongs to one of [hypothesis → finding → decision → principle] stages" — a decisions/ entry per shipped feature is the load-bearing claim. Eight commits without a corresponding decision page is the kind of drift the lint workflow should catch. Filing the backfill itself, not just the decision, so the gap is visible in the log.
+
+## [2026-05-13] plan | WP-Bench v1 spec + private business doc
+
+Drafted the public-launch benchmark spec and the internal strategy doc. The benchmark is a new artifact category (external comparison, not internal tool-iteration measurement); filed under `wiki/launch/` to keep it separate from the existing `wiki/benchmarks/` perf record. Pre-registered predictions, pre-committed retraction threshold, and a 7-week W1→W7 launch sequence anchored on the BU-Bench harness (sibling repo).
+
+The business doc is gitignored — strategy, GTM, indie-vs-venture decision gate at month 6. Not for public repos; lives in the wiki for the same reason source-of-truth docs do, with a `wiki/business.md` line in `.gitignore` to keep it private.
+
+Pages touched:
+- wiki/launch/wp-bench-v1.md (new — type: benchmark, status: planned)
+- wiki/business.md (new, gitignored — type: strategy)
+- .gitignore (added `wiki/business.md`)
+- wiki/index.md (new Launch section linking wp-bench-v1)
+- wiki/log.md (this entry)
+
+Open questions parked in the spec: Stagehand may be the closer rival than Playwright-MCP (pending pilot); Computer Use action budget needs both capped/uncapped numbers; browser-use cloud vs local-headful for fairness; design-partner sequencing ahead of HN launch.
+
+Decision gate: if WP-Bench v1 shows ≤10pt gap vs Playwright-MCP in ≥3 categories, the category framing is retracted. The spec includes that as a pre-commitment, not a hedging clause.
+
 ## [2026-05-12] ingest | cursor-export 17-session analysis + AI-native philosophy pushback
 
 Two-pass analysis of 17 cursor session transcripts (7 playwright-dominant, 10 webpilot-dominant) covering matched task families. Pass 1 mapped the agent's perception→plan→act→perceive loop on both tools and enumerated 12 structural flaws. Pass 2 was a philosophy exchange with the project owner: pushback on "agent needs 0 web knowledge" (refined to *0 implementation knowledge, full semantic knowledge*), plus 8 ranked hypotheses.
