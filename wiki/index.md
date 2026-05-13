@@ -10,6 +10,7 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 
 ## Decisions (in code)
 
+- [npm-package-name-vs-tool-name](decisions/npm-package-name-vs-tool-name.md) — tool / brand / MCP server identity is **vimx**; npm package + bin is **vimx-mcp** (npm typo-squat blocked unscoped `vimx` for similarity to viem/vite). Divergence is intentional and documented; only visible at install time.
 - [license-mit-with-relicense-trigger](decisions/license-mit-with-relicense-trigger.md) — MIT for v0; documented re-license trigger to Apache 2.0 (enterprise legal ask / foundation entry / $1M ARR / blocked corp contributor). DCO sign-off, not CLA. Trademark reserved separately.
 - [browser-lifecycle-and-profile-semantics](decisions/browser-lifecycle-and-profile-semantics.md) — `browser_open`/`browser_close` as explicit lifecycle tools; four profile modes (attach / template clone / persistent / ephemeral) gated by env. SIGKILL-safe via pid-verified `/tmp/vimx-mcp-*` sweep.
 - [auto-rescan-after-mutation](decisions/auto-rescan-after-mutation.md) — every mutating tool returns a fresh scan inline.

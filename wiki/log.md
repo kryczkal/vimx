@@ -1,3 +1,19 @@
+## [2026-05-14] decide | npm package name (vimx-mcp) diverges from tool name (vimx)
+
+npm registry rejected the unscoped `vimx` name on first publish — typo-squat protection flagged it as too close to `viem`, `vite`, `vm2`, `vuex`, `mime`, `jimp` (Levenshtein-1 from viem). Chose unscoped `vimx-mcp` over scoped `@kryczkal/vimx`: matches MCP-ecosystem naming convention, more authoritative, doesn't tie the package to the author's npm handle.
+
+Bin name renamed alongside (`bin: { "vimx-mcp": "dist/index.js" }`) so `npx -y vimx-mcp` resolves cleanly without the verbose `-p` flag.
+
+**Crucial constraint preserved**: tool identity stays `vimx` everywhere except npm install path. MCP server still registers as `vimx`, env vars are `VIMX_*`, page-side global is `window.__vimx[]`, GitHub repo is `kryczkal/vimx`, all prose says "vimx". Only `package.json` `name` + `bin` and the README install snippets diverge.
+
+Pages touched:
+- `wiki/decisions/npm-package-name-vs-tool-name.md` (new — full surface map + operational rules)
+- `wiki/index.md` (added at top of Decisions list)
+- `wiki/log.md` (this entry)
+- `package.json` + `README.md` (the actual divergence — committed in `b2cf0f8`)
+
+If npm ever releases the unscoped `vimx`: documented migration path is keeping `vimx-mcp` as a deprecation alias for one minor-version cycle so existing configs don't break overnight. Decision page covers this.
+
 ## [2026-05-14] decide | rename webpilot → vimx (project-wide)
 
 Rebrand. "webpilot" collided with three+ active projects (Chrome extension, Chrome MCP server, SEO SaaS) — failed the basic uniqueness test. The "Vimium for AI agents" tagline is preserved, but the brand is now distinct.
