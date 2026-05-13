@@ -1,6 +1,6 @@
 import CDP from "chrome-remote-interface";
 import { execSync, spawn } from "child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -132,10 +132,11 @@ export async function ensureBrowser(port: number): Promise<void> {
 //      attach instead of spawning a duplicate.
 //   5. neither: fresh /tmp dir per browser_open, wiped on close.
 //
-// TODO (headless future): under SIGKILL of the MCP server the spawned chromium
-// becomes an orphan. With a visible window the user can close it manually;
-// once we support headless that won't be possible. Fix is a startup sweep of
-// /tmp/webpilot-mcp-* dirs whose PID file points at a dead PID.
+// Under SIGKILL of the MCP server the spawned chromium would otherwise
+// become an orphan holding the profile dir. sweepStaleProfiles() handles
+// this: every dir we create has a webpilot.pid file with our pid, and on
+// next MCP boot we sweep dirs whose owner is dead, killing any orphan
+// chromium found there.
 
 interface BrowserHandle {
   port: number;
@@ -148,6 +149,61 @@ let currentHandle: BrowserHandle | null = null;
 // Held for the MCP server's lifetime so successive open/close cycles
 // reuse the same cookies; wiped by syncShutdownCurrent() on MCP exit.
 let templateClone: string | null = null;
+
+// Sweep runs once per MCP server lifetime, on first browser_open. SIGKILLed
+// MCP servers can't run their cleanup paths, leaving /tmp/webpilot-mcp-*
+// dirs (and sometimes orphan chromiums) behind. Each dir we own holds a
+// webpilot.pid file with our MCP server pid; on sweep, dirs whose pid is
+// dead get their orphan chromium killed (verified via /proc/<pid>/cmdline
+// to avoid pid-recycle disasters) and the dir wiped. Dirs without a pid
+// file are treated as predating this feature and also swept.
+let sweepDone = false;
+
+function sweepStaleProfiles(): void {
+  if (sweepDone) return;
+  sweepDone = true;
+
+  const tmp = tmpdir();
+  let entries: string[];
+  try { entries = readdirSync(tmp); } catch { return; }
+
+  for (const name of entries) {
+    if (!name.startsWith("webpilot-mcp-")) continue;
+    const dir = join(tmp, name);
+
+    let ownerAlive = false;
+    try {
+      const pid = parseInt(readFileSync(join(dir, "webpilot.pid"), "utf8").trim(), 10);
+      if (Number.isFinite(pid) && pid > 0) {
+        try { process.kill(pid, 0); ownerAlive = true; } catch { /* ESRCH = dead */ }
+      }
+    } catch { /* no pid file = predates feature, treat as stale */ }
+    if (ownerAlive) continue;
+
+    // Owner dead. Orphan chromium may still be holding the dir; SingletonLock
+    // is a symlink whose target is "<host>-<pid>". Verify via /proc that the
+    // pid actually belongs to a chromium running on this dir before killing
+    // the process group, in case the pid has been recycled.
+    try {
+      const target = readlinkSync(join(dir, "SingletonLock"));
+      const chromiumPid = parseInt(target.split("-").pop() ?? "", 10);
+      if (Number.isFinite(chromiumPid) && chromiumPid > 0) {
+        try {
+          const cmdline = readFileSync(`/proc/${chromiumPid}/cmdline`, "utf8");
+          if (cmdline.includes("chromium") && cmdline.includes(dir)) {
+            try { process.kill(-chromiumPid, "SIGKILL"); } catch {}
+          }
+        } catch { /* /proc unreachable or pid gone */ }
+      }
+    } catch { /* no lock file = chromium not running */ }
+
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+function writeOwnershipPid(dir: string): void {
+  try { writeFileSync(join(dir, "webpilot.pid"), String(process.pid)); } catch {}
+}
 
 function ensureTemplateClone(): string | null {
   const template = process.env.WEBPILOT_PROFILE_TEMPLATE;
@@ -170,6 +226,7 @@ function ensureTemplateClone(): string | null {
   for (const f of ["DevToolsActivePort", "SingletonLock", "SingletonCookie", "SingletonSocket"]) {
     try { rmSync(join(dir, f), { force: true }); } catch {}
   }
+  writeOwnershipPid(dir);
   templateClone = dir;
   return dir;
 }
@@ -205,6 +262,10 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
     await ensureBrowser(port);
     return { port, shutdown: () => {} };
   }
+
+  // Reap leaks from prior SIGKILLed MCP servers before creating our own
+  // dirs (so we don't accidentally sweep one mid-creation by another MCP).
+  sweepStaleProfiles();
 
   const cloned = ensureTemplateClone();
   const persistDir = cloned ? null : process.env.WEBPILOT_PROFILE_DIR;
@@ -243,6 +304,7 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
     }
   } else {
     profile = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+    writeOwnershipPid(profile);
     ephemeral = true;
   }
 
