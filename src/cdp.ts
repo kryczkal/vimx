@@ -1,6 +1,6 @@
 import CDP from "chrome-remote-interface";
 import { execSync, spawn } from "child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -117,9 +117,12 @@ export async function ensureBrowser(port: number): Promise<void> {
 //   1. CDP_TARGET set: attach to a remote websocket. Caller manages lifetime.
 //   2. CDP_PORT set: attach to a local Chrome on that port. Started outside
 //      this process (e.g. scripts/dev-chrome.sh), so we don't kill it.
-//   3. neither set: spawn a fresh headed chromium on an OS-assigned port with
-//      a fresh /tmp profile. Lifetime tied to MCP server — shutdown() kills
-//      the process and wipes the profile.
+//   3. neither set: spawn a fresh headed chromium on an OS-assigned port.
+//      Default profile is a fresh /tmp dir wiped on shutdown. Set
+//      WEBPILOT_PROFILE_DIR to use a persistent profile instead — needed
+//      for sites like Google that block fresh-profile OAuth as suspected
+//      automation. With a persistent profile, if chromium is already
+//      running against that dir we attach to it; otherwise we spawn.
 //
 // TODO (headless future): under SIGKILL the spawned chromium becomes an
 // orphan. With a visible window the user can close it manually; once we
@@ -163,7 +166,37 @@ export async function startBrowser(): Promise<BrowserHandle> {
     return { port, shutdown: () => {} };
   }
 
-  const profile = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+  const persistDir = process.env.WEBPILOT_PROFILE_DIR;
+  let profile: string;
+  let ephemeral: boolean;
+  if (persistDir) {
+    profile = persistDir;
+    mkdirSync(profile, { recursive: true });
+    ephemeral = false;
+
+    // If a chromium is already running against this profile (e.g. user
+    // launched it manually to log into Google), attach instead of spawning
+    // a second instance — chromium would otherwise forward to the existing
+    // singleton and exit, leaving us with no controllable process.
+    try {
+      const existingPort = await readActivePort(profile, 200);
+      await CDP.List({ port: existingPort });
+      return { port: existingPort, shutdown: () => {} };
+    } catch {
+      // not running, fall through to spawn
+    }
+
+    // Singleton* and DevToolsActivePort are stale after a SIGKILLed run;
+    // a fresh chromium would otherwise show "previous session crashed" UI
+    // or, worse, a stale port pointing at nothing.
+    for (const f of ["DevToolsActivePort", "SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      try { rmSync(join(profile, f), { force: true }); } catch {}
+    }
+  } else {
+    profile = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+    ephemeral = true;
+  }
+
   // detached:true puts chromium in its own process group so we can SIGKILL the
   // whole group (parent + zygote + renderers + gpu-process + …) in one syscall
   // via process.kill(-pid). Without that, killing only the parent leaves child
@@ -182,11 +215,14 @@ export async function startBrowser(): Promise<BrowserHandle> {
     if (killed) return;
     killed = true;
     if (child.pid) {
-      // Negative pid = process group. SIGKILL because the profile is
-      // ephemeral; we don't owe chromium a graceful exit.
+      // Negative pid = process group. SIGKILL because we don't owe chromium
+      // a graceful exit; cookies are flushed eagerly so the persistent
+      // profile keeps your login state regardless.
       try { process.kill(-child.pid, "SIGKILL"); } catch {}
     }
-    try { rmSync(profile, { recursive: true, force: true }); } catch {}
+    if (ephemeral) {
+      try { rmSync(profile, { recursive: true, force: true }); } catch {}
+    }
   };
 
   try {

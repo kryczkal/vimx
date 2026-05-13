@@ -21,6 +21,8 @@ CDP_PORT=9222 node dist/index.js          # production
 # Or configure as MCP server in Claude Code settings
 ```
 
+When neither `CDP_TARGET` nor `CDP_PORT` is set, webpilot spawns its own chromium with an ephemeral profile (wiped on shutdown). Set `WEBPILOT_PROFILE_DIR=/path/to/dir` to use a persistent profile instead — required for sites that block fresh-profile OAuth (Google sign-in, etc.). If chromium is already running against that dir, webpilot attaches to it instead of spawning a duplicate.
+
 ## Key files
 
 - `src/scanner.ts` — Injectable JS derived from Vimium's link_hints.js and dom_utils.js
