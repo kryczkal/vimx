@@ -3,7 +3,7 @@
 **Vimium for AI agents.** An MCP server that gives LLM agents Vimium-style browser control via the Chrome DevTools Protocol — affordance-typed actions over filtered, hit-tested element refs, instead of megabyte DOM dumps.
 
 ```
-npx vimx   # runs the MCP server over stdio
+npx -y vimx-mcp   # runs the MCP server over stdio
 ```
 
 ## Why
@@ -29,7 +29,7 @@ vimx is a stdio MCP server. Add it to your MCP-aware client:
 ### Claude Code
 
 ```bash
-claude mcp add vimx -- npx -y vimx
+claude mcp add vimx -- npx -y vimx-mcp
 ```
 
 ### Claude Desktop
@@ -41,7 +41,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
   "mcpServers": {
     "vimx": {
       "command": "npx",
-      "args": ["-y", "vimx"]
+      "args": ["-y", "vimx-mcp"]
     }
   }
 }
@@ -56,7 +56,7 @@ Edit `~/.cursor/mcp.json`:
   "mcpServers": {
     "vimx": {
       "command": "npx",
-      "args": ["-y", "vimx"]
+      "args": ["-y", "vimx-mcp"]
     }
   }
 }

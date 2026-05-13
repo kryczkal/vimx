@@ -1,5 +1,5 @@
 {
-  "name": "vimx",
+  "name": "vimx-mcp",
   "version": "0.1.0",
   "description": "MCP server giving AI agents Vimium-like browser control via Chrome DevTools Protocol — affordance-typed actions over filtered, hit-tested element refs.",
   "license": "MIT",
@@ -16,7 +16,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "vimx": "dist/index.js"
+    "vimx-mcp": "dist/index.js"
   },
   "files": [
     "dist",
