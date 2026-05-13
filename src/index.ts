@@ -932,7 +932,7 @@ const server = new McpServer({
 
 server.tool(
   "browser_open",
-  "Open a browser. Must be called before scan/press/type/etc. Spawns a fresh headed chromium with a clean ephemeral profile by default; if CDP_PORT or CDP_TARGET env is set, attaches to that existing chromium instead. Idempotent — calling twice returns 'already open'.",
+  "Open a browser. Must be called before scan/press/type/etc. Spawns a fresh headed chromium; profile depends on env (ephemeral by default, cloned-from-template if WEBPILOT_PROFILE_TEMPLATE is set, persistent if WEBPILOT_PROFILE_DIR is set, attach-to-external if CDP_PORT/CDP_TARGET). Idempotent — calling twice returns 'already open'.",
   {},
   async () => {
     try {
@@ -949,7 +949,7 @@ server.tool(
 
 server.tool(
   "browser_close",
-  "Close the open browser. Kills the spawned chromium and wipes its profile (no-op for attach-mode where you started chromium yourself). Call this when you're done browsing so the chromium window goes away. No-op if no browser is open.",
+  "Close the open browser. Kills the spawned chromium. Per-open ephemeral profiles are wiped; template clones and persistent profiles are preserved (cookies survive into the next browser_open). No-op for attach-mode where you started chromium yourself. No-op if no browser is open.",
   {},
   async () => {
     try {

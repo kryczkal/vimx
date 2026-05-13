@@ -21,7 +21,12 @@ CDP_PORT=9222 node dist/index.js          # production
 # Or configure as MCP server in Claude Code settings
 ```
 
-When neither `CDP_TARGET` nor `CDP_PORT` is set, webpilot spawns its own chromium with an ephemeral profile (wiped on shutdown). Set `WEBPILOT_PROFILE_DIR=/path/to/dir` to use a persistent profile instead — required for sites that block fresh-profile OAuth (Google sign-in, etc.). If chromium is already running against that dir, webpilot attaches to it instead of spawning a duplicate.
+When neither `CDP_TARGET` nor `CDP_PORT` is set, webpilot spawns its own chromium. Two opt-in env vars control profile handling:
+
+- `WEBPILOT_PROFILE_TEMPLATE=/path` — clone the dir to an MCP-server-scoped `/tmp` clone on first `browser_open`, reuse across open/close cycles within that MCP server, wipe on MCP exit. Each MCP server gets its own clone, so multiple agents can run simultaneously starting from the same logged-in template (e.g. signed into Google) without fighting over chromium's per-user-data-dir lock. Use this for browser-per-agent + consistent boot state.
+- `WEBPILOT_PROFILE_DIR=/path` — use the dir directly, no copy. Persists across MCP restarts but cannot be shared across MCP servers concurrently. Best for "one debug browser I keep around." If chromium is already running against the dir webpilot attaches instead of spawning a duplicate.
+
+If both are set, `_TEMPLATE` wins. With neither, each `browser_open` gets a fresh ephemeral `/tmp` dir wiped on `browser_close`.
 
 ## Key files
 

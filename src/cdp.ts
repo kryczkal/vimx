@@ -1,6 +1,6 @@
 import CDP from "chrome-remote-interface";
 import { execSync, spawn } from "child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -114,16 +114,23 @@ export async function ensureBrowser(port: number): Promise<void> {
 
 // ── Browser lifecycle ──
 // MCP server starts cold; the LLM calls browser_open to spawn / attach, and
-// browser_close to tear down. spawnOrAttach() has three branches:
+// browser_close to tear down. spawnOrAttach() has these branches:
 //   1. CDP_TARGET set: attach to a remote websocket. Caller manages lifetime.
 //   2. CDP_PORT set: attach to a local Chrome on that port. Started outside
 //      this process (e.g. scripts/dev-chrome.sh), so we don't kill it.
-//   3. neither set: spawn a fresh headed chromium on an OS-assigned port.
-//      Default profile is a fresh /tmp dir wiped on shutdown. Set
-//      WEBPILOT_PROFILE_DIR to use a persistent profile instead — needed
-//      for sites like Google that block fresh-profile OAuth as suspected
-//      automation. With a persistent profile, if chromium is already
-//      running against that dir we attach to it; otherwise we spawn.
+//   3. WEBPILOT_PROFILE_TEMPLATE set: clone the template dir to an
+//      MCP-server-scoped /tmp dir on first open and reuse it across
+//      open/close cycles. Each MCP server gets its own clone, so two
+//      agents can run simultaneously with the same logged-in starting
+//      state without fighting over chromium's per-user-data-dir
+//      singleton lock. Cookies acquired mid-session persist across
+//      open/close within the MCP lifetime, then die with the server.
+//   4. WEBPILOT_PROFILE_DIR set: use that dir directly, no copy.
+//      Persists across MCP restarts but cannot be shared across MCP
+//      servers concurrently. Best for "one debug browser I keep
+//      around." If chromium is already running against the dir we
+//      attach instead of spawning a duplicate.
+//   5. neither: fresh /tmp dir per browser_open, wiped on close.
 //
 // TODO (headless future): under SIGKILL of the MCP server the spawned chromium
 // becomes an orphan. With a visible window the user can close it manually;
@@ -136,6 +143,36 @@ interface BrowserHandle {
 }
 
 let currentHandle: BrowserHandle | null = null;
+
+// Lazily cloned from WEBPILOT_PROFILE_TEMPLATE on first browser_open.
+// Held for the MCP server's lifetime so successive open/close cycles
+// reuse the same cookies; wiped by syncShutdownCurrent() on MCP exit.
+let templateClone: string | null = null;
+
+function ensureTemplateClone(): string | null {
+  const template = process.env.WEBPILOT_PROFILE_TEMPLATE;
+  if (!template) return null;
+  if (templateClone) return templateClone;
+
+  if (!existsSync(template)) {
+    throw new Error(`WEBPILOT_PROFILE_TEMPLATE='${template}' does not exist`);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "webpilot-mcp-"));
+  try {
+    cpSync(template, dir, { recursive: true, preserveTimestamps: true, dereference: false });
+  } catch (e) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    throw new Error(`Failed to clone WEBPILOT_PROFILE_TEMPLATE: ${e instanceof Error ? e.message : e}`);
+  }
+  // The template may carry stale lock state if the user pre-launched
+  // chromium against it (e.g. for the initial Google login); strip so
+  // the fresh chromium doesn't show "previous session crashed" UI.
+  for (const f of ["DevToolsActivePort", "SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    try { rmSync(join(dir, f), { force: true }); } catch {}
+  }
+  templateClone = dir;
+  return dir;
+}
 
 async function readActivePort(profile: string, timeoutMs = 10_000): Promise<number> {
   const path = join(profile, "DevToolsActivePort");
@@ -169,10 +206,19 @@ async function spawnOrAttach(): Promise<BrowserHandle> {
     return { port, shutdown: () => {} };
   }
 
-  const persistDir = process.env.WEBPILOT_PROFILE_DIR;
+  const cloned = ensureTemplateClone();
+  const persistDir = cloned ? null : process.env.WEBPILOT_PROFILE_DIR;
   let profile: string;
   let ephemeral: boolean;
-  if (persistDir) {
+  if (cloned) {
+    profile = cloned;
+    ephemeral = false;
+    // Stale singleton state from the previous browser_open in this same
+    // MCP session — chromium SIGKILLed by browser_close leaves these.
+    for (const f of ["DevToolsActivePort", "SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      try { rmSync(join(profile, f), { force: true }); } catch {}
+    }
+  } else if (persistDir) {
     profile = persistDir;
     mkdirSync(profile, { recursive: true });
     ephemeral = false;
@@ -269,12 +315,19 @@ export async function closeBrowser(): Promise<{ wasOpen: boolean }> {
 }
 
 // Sync-only cleanup for process-exit hooks (signal handlers can't await).
-// Skips the graceful CDP client close — chrome is dying anyway. Just kills
-// the process group and wipes the profile if we spawned one.
+// Skips the graceful CDP client close — chrome is dying anyway. Kills the
+// process group, wipes the per-open profile if we spawned one, and wipes
+// the MCP-server-scoped template clone (which browser_close intentionally
+// preserves across opens).
 export function syncShutdownCurrent(): void {
-  if (!currentHandle) return;
-  try { currentHandle.shutdown(); } catch {}
-  currentHandle = null;
+  if (currentHandle) {
+    try { currentHandle.shutdown(); } catch {}
+    currentHandle = null;
+  }
+  if (templateClone) {
+    try { rmSync(templateClone, { recursive: true, force: true }); } catch {}
+    templateClone = null;
+  }
 }
 
 function requirePort(): number {
