@@ -10,6 +10,7 @@ Navigation hub. See [CLAUDE.md](CLAUDE.md) for the operating manual and [IDEA.md
 
 ## Decisions (in code)
 
+- [license-mit-with-relicense-trigger](decisions/license-mit-with-relicense-trigger.md) — MIT for v0; documented re-license trigger to Apache 2.0 (enterprise legal ask / foundation entry / $1M ARR / blocked corp contributor). DCO sign-off, not CLA. Trademark reserved separately.
 - [browser-lifecycle-and-profile-semantics](decisions/browser-lifecycle-and-profile-semantics.md) — `browser_open`/`browser_close` as explicit lifecycle tools; four profile modes (attach / template clone / persistent / ephemeral) gated by env. SIGKILL-safe via pid-verified `/tmp/webpilot-mcp-*` sweep.
 - [auto-rescan-after-mutation](decisions/auto-rescan-after-mutation.md) — every mutating tool returns a fresh scan inline.
 - [stateful-scan-with-region-dedup](decisions/stateful-scan-with-region-dedup.md) — `scan()` is stateful per URL path; emits dedup output when prior state exists; region tag attached to every entry.

@@ -1,3 +1,25 @@
+## [2026-05-13] decide | license MIT with documented relicense trigger to Apache 2.0
+
+Resolved the OSS-license question parked in `business.md`. Decision is MIT for v0, with four named triggers for relicense to Apache 2.0: enterprise legal ask, foundation entry (CNCF/LF/ASF), $1M ARR, or large-corp contributor blocked by employer policy. DCO sign-off on all contributions preserves relicense optionality without CLA friction.
+
+Research basis: peer-license matrix at decision time was bimodal — indies (browser-use, Stagehand, Vimium) on MIT; big-company projects (Playwright-MCP, MCP TypeScript SDK) on Apache 2.0. v0 launch posture (indie agent builders, HN audience, max adoption velocity) puts us with the indies. The Apache 2.0 patent-grant value is deferred — enterprise/foundation/large-corp-contributor conversations are the trigger, not the current state. Source-available (BSL/FSL/SSPL) rejected as wrong-frame: pattern fits stateful managed-service businesses defending against AWS clones, not stateless library/server kernels like webpilot. AGPL/MPL 2.0 rejected: AGPL spooks enterprise procurement; MPL 2.0's file-level copyleft conflicts with the "embed in your stack" kernel positioning.
+
+Pages touched:
+- LICENSE (new — SPDX MIT, Copyright (c) 2026 Łukasz Kryczka)
+- CONTRIBUTING.md (new — DCO sign-off, scope guardrails for the kernel)
+- package.json (added `"license": "MIT"` + `"author"` field)
+- wiki/decisions/license-mit-with-relicense-trigger.md (new — type: decision, full alternatives + trigger gate documented)
+- wiki/business.md (struck-through the resolved open question, linked to decision page)
+- wiki/index.md (Decisions section: added at top)
+- wiki/log.md (this entry)
+
+Adjacent decisions captured in the decision page (not separate pages yet):
+- Trademark "webpilot" reserved separately — file intent-to-use USPTO when brand commits.
+- Benchmark license: CC BY 4.0 for WP-Bench task list + writeups (separate artifact from code).
+- DCO GitHub App install (github.com/apps/dco) deferred until repo is public.
+
+Calibration note: the original parked answer in business.md was "lean Apache 2.0; defer until first enterprise conversation." Research flipped the lean — the closest functional peers (browser-use, Stagehand) being MIT was the load-bearing data, not the Anthropic-SDK Apache 2.0 signal. First-draft conviction was wrong; the wiki-discipline check (separate research before committing) caught it before it became code.
+
 ## [2026-05-13] backfill | browser-lifecycle + profile-semantics decision
 
 Eight shipped commits (May 12 → May 13) were absent from the wiki — a coherent architectural arc that moved the chromium from "MCP boot spawns it" to "LLM controls it via tools, profile semantics opt-in by env." The wiki had zero references to `browser_open`, `browser_close`, `WEBPILOT_PROFILE_TEMPLATE`, or `WEBPILOT_PROFILE_DIR`. Backfilled as a single decision page rather than per-commit, since they form one design.
@@ -62,7 +84,7 @@ Skills in `.claude/commands/`. Project root `CLAUDE.md` got a wiki pointer so fu
 
 ## [2026-05-12] ingest | claude-code /benchmark dev sessions
 
-Mined 13 project sessions in `~/.claude/projects/-home-wookie-Projects-webpilot/` that contained `/benchmark` mentions. Real `/benchmark` execution data came from 4 sessions:
+Mined 13 project sessions in the local claude-code project history (`~/.claude/projects/<path-encoded>/`, where the encoded form is the project's absolute path with `/` replaced by `-`) that contained `/benchmark` mentions. Real `/benchmark` execution data came from 4 sessions:
 
 - `3cd0f551` — 4 runs (iframe-merge, read-zero-chars regression, layout-variability, chrome-strip)
 - `f174aed7` — 2 runs (hit-test, scanner empty-label filter)

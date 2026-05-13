@@ -1,12 +1,50 @@
 {
   "name": "webpilot",
   "version": "0.1.0",
+  "description": "MCP server giving AI agents Vimium-like browser control via Chrome DevTools Protocol — affordance-typed actions over filtered, hit-tested element refs.",
+  "license": "MIT",
+  "author": "Łukasz Kryczka <lukasz.kryczka000@gmail.com>",
+  "homepage": "https://github.com/kryczkal/webpilot#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kryczkal/webpilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kryczkal/webpilot/issues"
+  },
   "type": "module",
-  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "webpilot": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md",
+    "README.md"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "browser-automation",
+    "chrome",
+    "cdp",
+    "chrome-devtools-protocol",
+    "ai-agent",
+    "agent",
+    "llm",
+    "claude",
+    "vimium"
+  ],
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
@@ -18,8 +56,5 @@
     "@types/node": "^22",
     "tsx": "^4",
     "typescript": "^5"
-  },
-  "engines": {
-    "node": ">=20"
   }
 }

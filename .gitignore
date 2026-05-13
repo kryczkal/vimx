@@ -6,7 +6,15 @@ tools/
 # per-worktree config (managed by cwt)
 .mcp.json
 .cwt-state/
+.cwt-hooks/
 CLAUDE.local.md
 
-# private wiki docs (strategy, business)
+# private wiki docs (strategy, business, raw session analyses)
 wiki/business.md
+wiki/sessions/
+
+# bootstrap conversation (contains personal email + alias)
+origin-prompt
+
+# raw benchmark data — bulky (12 MB) and regenerable from audit/*.mts scripts
+audit/data/

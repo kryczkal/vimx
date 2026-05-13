@@ -14,7 +14,7 @@ This is NOT bug-hunting (use `/audit-sessions` for that). This is the deeper que
 
 ### 1. Find sessions
 
-Default path: `/home/wookie/Projects/cursor-export/exported/cursor-session-*.md`. If the user points elsewhere, use that. List sizes; flag anything < 30KB as likely short and 100KB+ as worth a deep read.
+Ask the user for the path to their cursor session export directory (typically `cursor-session-*.md` files dumped from the IDE). If they don't point anywhere, propose `~/cursor-export/exported/` and `~/Documents/cursor-export/` as guesses and check those. List sizes; flag anything < 30KB as likely short and 100KB+ as worth a deep read.
 
 ### 2. Classify by tool
 

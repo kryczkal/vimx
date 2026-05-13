@@ -5,10 +5,11 @@ Run the ingest workflow on a new source. Full conventions in `wiki/CLAUDE.md` �
 ## Resolve $1
 
 - **File path** (`/path/to/file.md`) → ingest that file directly.
-- **Claude-code session UUID** (8-4-4-4-12 hex) → load `~/.claude/projects/-home-wookie-Projects-webpilot/<uuid>.jsonl`. Find the relevant portion (typically the output of a slash command); don't ingest the whole conversation.
+- **Claude-code session UUID** (8-4-4-4-12 hex) → load `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`, where `<encoded-cwd>` is the project's absolute path with `/` replaced by `-` (e.g. `/home/alice/code/webpilot` → `-home-alice-code-webpilot`). Find the relevant portion (typically the output of a slash command); don't ingest the whole conversation.
 - **`benchmark`** → find recent `/benchmark` runs in the project's claude-code history:
   ```bash
-  grep -l '"/benchmark"\|/benchmark\b' ~/.claude/projects/-home-wookie-Projects-webpilot/*.jsonl
+  proj="$HOME/.claude/projects/$(pwd | sed 's|/|-|g')"
+  grep -l '"/benchmark"\|/benchmark\b' "$proj"/*.jsonl
   ```
   Cross-reference against `wiki/log.md` (every ingest is logged with its source UUID) to skip ones already processed. Within each session, the relevant content is the assistant's response *after* the `/benchmark` user message — that's the benchmark report. Extract that, not the surrounding development chat.
 - **(no argument)** → list unprocessed `/benchmark` sessions, ask the user to pick one. Don't ingest silently.
