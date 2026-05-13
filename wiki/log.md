@@ -1,3 +1,43 @@
+## [2026-05-14] decide | rename webpilot → vimx (project-wide)
+
+Rebrand. "webpilot" collided with three+ active projects (Chrome extension, Chrome MCP server, SEO SaaS) — failed the basic uniqueness test. The "Vimium for AI agents" tagline is preserved, but the brand is now distinct.
+
+Naming process: rejected metaphor lane (Sleuth, Shepherd) and pure-brandable lane (Hindle, Vyx) — those will be saved for the future glasses AI consumer product. For *this* under-the-hood Vimium-based MCP infra, infrastructure-feeling names won (vimx, vimkit, hint-mcp, dom-pry as the shortlist). Settled on **vimx**: Vim-tribute heritage, three letters, Unix-y `-x` suffix (httpx, swc, fd lane), npm name free, GitHub repo claimed.
+
+Mass rename across 49 files (248 insertions / 244 deletions, commit 81d4f88):
+- `webpilot` → `vimx` (226× — prose, npm name, bin, MCP server identity)
+- `WEBPILOT` → `VIMX` (35× — env vars: `VIMX_PROFILE_TEMPLATE`, `VIMX_PROFILE_DIR`, `VIMX_HIGHLIGHT`, `VIMX_SCAN_DEDUP`)
+- `WP-Bench` → `Vimx Bench` (10×)
+- `wp-bench` → `vimx-bench` (9×)
+- `Webpilot` → `Vimx` (4×)
+- `wpbench` → `vimxbench` (1×)
+
+API surface changes (breaking — no public adopters yet, so safe window):
+- MCP server registers as `vimx`
+- `window.__vimx[]` (was `window.__webpilot[]`) — page-side global ref store
+- `/tmp/vimx-mcp-*` (was `/tmp/webpilot-mcp-*`) — ephemeral profile dir convention
+- Env vars: `VIMX_*` not `WEBPILOT_*`
+- npm package: `vimx`; bin: `vimx`
+
+File rename: `wiki/launch/wp-bench-v1.md` → `wiki/launch/vimx-bench-v1.md`. Git remote URL updated to `git@github.com:kryczkal/vimx.git`. GitHub repo renamed via UI (auto-redirects from old URL indefinitely; local remote points at new directly).
+
+Pages touched:
+- All 49 modified files (see `git show 81d4f88 --stat`)
+- THIRD-PARTY-NOTICES.md untouched (Vimium attribution preserved verbatim)
+- `wiki/business.md` updated (gitignored — strategy doc)
+- `~/.cursor/mcp.json` updated (server key + env var names)
+- `~/.claude/settings.local.json` updated (`mcp__webpilot__*` → `mcp__vimx__*` permission entries)
+- `wiki/log.md` (this entry)
+
+Local-dev cleanup deferred:
+- Project directory `/home/wookie/Projects/webpilot/` not renamed — would cascade into 5 worktree paths and the cwt config. Path is incidental; only the GitHub repo URL changed.
+- Other worktree branches (`capture-bridge`, `code-quality`, `find-query`, `multi-browser`, `predicted-effect-annotations`) still contain `webpilot` references in their per-branch state. Each worktree's `.mcp.json` (`webpilot.code-quality/.mcp.json` etc.) still references the old name. Will resolve when each branch is rebased onto the new main; until then, those worktrees' MCP configs match their branch state and continue to function.
+- Profile template path `/home/wookie/.local/state/webpilot/profile` left as-is (just storage; rename is cosmetic).
+
+Calibration note: the GitHub push of the launch-prep batch triggered GitHub's secret-scanning protection — caught a real-format Stripe key (the canonical Stripe documentation example, value redacted to keep this log push-safe) inside `docs/PRODUCTION_JAVASCRIPT_GUIDE.md` at line 2159. Pre-push secret scan grepped for generic `api[_-]?key|secret|token|password|sk-` patterns but missed the `sk_(live|test)_*` Stripe-specific format. Filing for next time: include Stripe-format detection in the pre-push scan even though GitHub's scanner catches it post-push. Resolved via `git filter-branch` over 9 commits, replacing with a clearly-non-real placeholder. History was force-pushed.
+
+Meta-calibration: the *first* version of this very log entry repeated the leaked key value verbatim in the prose explaining the incident, which re-triggered push protection on the next push. Lesson: when documenting a secret-leak incident in a public-bound wiki, redact the literal value even in the meta-narrative. Updated the entry to refer to the format pattern instead.
+
 ## [2026-05-13] decide | license MIT with documented relicense trigger to Apache 2.0
 
 Resolved the OSS-license question parked in `business.md`. Decision is MIT for v0, with four named triggers for relicense to Apache 2.0: enterprise legal ask, foundation entry (CNCF/LF/ASF), $1M ARR, or large-corp contributor blocked by employer policy. DCO sign-off on all contributions preserves relicense optionality without CLA friction.
