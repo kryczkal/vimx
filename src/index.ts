@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createRequire } from "node:module";
 import { z } from "zod";
 import type CDP from "chrome-remote-interface";
 import {
@@ -10,6 +11,8 @@ import {
   waitForLoadingIndicators, openBrowser, closeBrowser, syncShutdownCurrent,
 } from "./cdp.js";
 import { SCANNER_JS, FRAME_SCANNER_JS, CHECK_JS, RESOLVE_JS, SELECT_JS, READ_JS, HIGHLIGHT_JS } from "./scanner.js";
+
+const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
 
 const HIGHLIGHT = !["", "0", "false"].includes((process.env.VIMX_HIGHLIGHT ?? "").toLowerCase());
 
@@ -928,7 +931,7 @@ const elementRef = z.union([
 
 const server = new McpServer({
   name: "vimx",
-  version: "0.2.0",
+  version: pkg.version,
 });
 
 server.tool(
